@@ -21,7 +21,6 @@ var logoGradient = []color.Color{violet, orchid, pink}
 
 var (
 	taglineStyle   = lipgloss.NewStyle().Foreground(gray)
-	statusStyle    = lipgloss.NewStyle().Foreground(white).Bold(true)
 	detailStyle    = lipgloss.NewStyle().Foreground(gray)
 	borderStyle    = lipgloss.NewStyle().Foreground(violet)
 	panelStyle     = lipgloss.NewStyle().Foreground(white).Bold(true)

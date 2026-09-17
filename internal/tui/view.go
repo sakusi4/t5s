@@ -28,6 +28,8 @@ const (
 	lastSeenTitle    = "LAST SEEN"
 	allowLabel       = "Allow   "
 	expireLabel      = "Expire  "
+	scanningStatus   = "scanning…"
+	refreshText      = "refresh %s"
 	noServicesText   = "No local web services found."
 	noAccessText     = "No requests yet."
 	rangeText        = "%d–%d of %d"
@@ -128,7 +130,29 @@ func (m Model) servicesPanel(inner int) (lines []string, cursorLine int) {
 			cursorLine = borderWidth + 1 + m.cursor - m.offset
 		}
 	}
-	return panel(servicesTitle, rangeLabel(m.offset, m.visibleRows(), len(rows)), pad2(content, m.bodyHeight()-2*borderWidth), inner), cursorLine
+	return panel(servicesTitle, m.servicesLabel(), pad2(content, m.bodyHeight()-2*borderWidth), inner), cursorLine
+}
+
+func (m Model) servicesLabel() string {
+	rows := m.rows()
+	label := plural(len(rows), "service")
+	if span := rangeLabel(m.offset, m.visibleRows(), len(rows)); span != "" {
+		label = span + " services"
+	}
+	if !m.scanned {
+		label = scanningStatus
+	}
+	if len(m.shares) > 0 {
+		label += hintSeparator + plural(len(m.shares), "share")
+	}
+	return label + hintSeparator + fmt.Sprintf(refreshText, refreshInterval)
+}
+
+func plural(n int, noun string) string {
+	if n == 1 {
+		return "1 " + noun
+	}
+	return fmt.Sprintf("%d %ss", n, noun)
 }
 
 func (m Model) serviceTable(rows []row, inner int) []string {
@@ -278,6 +302,9 @@ func pad2(lines []string, height int) []string {
 }
 
 func panel(title, right string, content []string, inner int) []string {
+	if lipgloss.Width("─ "+title+"  "+right+" ─") > inner {
+		right = ""
+	}
 	left := "─ " + title + " "
 	tail := ""
 	if right != "" {
@@ -360,7 +387,7 @@ func (m Model) visibleKeys() []key.Binding {
 	if selected, ok := m.selectedRow(); ok {
 		switch {
 		case selected.share != nil:
-			bindings = append(bindings, m.keys.open, m.keys.stop, m.keys.copy)
+			return m.keys.sharedBindings()
 		case !selected.opening:
 			bindings = append(bindings, m.keys.share)
 		}

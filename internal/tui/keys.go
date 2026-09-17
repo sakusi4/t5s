@@ -36,6 +36,10 @@ func newKeyMap() keyMap {
 	}
 }
 
+func (k keyMap) sharedBindings() []key.Binding {
+	return []key.Binding{k.up, k.down, k.open, k.stop, k.copy, k.quit}
+}
+
 func (k keyMap) dialogBindings() []key.Binding {
 	return []key.Binding{k.confirm, k.next, k.cancel}
 }

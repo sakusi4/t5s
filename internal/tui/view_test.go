@@ -56,7 +56,7 @@ func expectText(t *testing.T, m Model, want, notWant []string) {
 func expectKeys(t *testing.T, m Model, want, notWant []string) {
 	t.Helper()
 	lines := plainLines(m.View())
-	first := lineContaining(t, lines, "█  ▀▀▄")
+	first := lineContaining(t, lines, logo[len(logo)-keyRows])
 	got := strings.Join(strings.Fields(lines[first]+" "+lines[first+1]), " ")
 	for _, text := range want {
 		if !strings.Contains(got, text) {
@@ -227,21 +227,75 @@ func TestModel_View(t *testing.T) {
 		}
 	})
 
-	t.Run("keys sit under the tagline in two rows", func(t *testing.T) {
-		lines := plainLines(scanned(t, &fakeDeps{}, three...).View())
-		want := column(t, lines[0], tagline)
-		if up, down := column(t, lines[1], "↑/k"), column(t, lines[2], "↓/j"); up != want || down != want {
-			t.Errorf("keys start at columns %d and %d, want both under the tagline at %d", up, down, want)
+	t.Run("keys sit at the right end of the header in two aligned rows", func(t *testing.T) {
+		m := shared(t, scanned(t, &fakeDeps{}, three...), allowedEntry)
+		lines := plainLines(m.View())
+		if up, down := column(t, lines[1], "↑/k"), column(t, lines[2], "↓/j"); up != down {
+			t.Errorf("key rows start at columns %d and %d, want the same column", up, down)
+		}
+		if got := lipgloss.Width(strings.TrimRight(lines[1], " ")); got != defaultWidth-1 {
+			t.Errorf("key row ends at column %d, want it at the right end %d", got, defaultWidth-1)
+		}
+		if strings.Contains(lines[0]+lines[1]+lines[2], "services") {
+			t.Errorf("header = %q, want the counts in the panel title instead", lines[:3])
 		}
 	})
 
-	t.Run("refresh note gives way to the keys in a narrow window", func(t *testing.T) {
-		m := scanned(t, &fakeDeps{}, three...)
+	t.Run("first key stays in one place on every screen", func(t *testing.T) {
+		m := shared(t, scanned(t, &fakeDeps{}, three...), allowedEntry)
+		want := column(t, plainLines(m.View())[1], "↑/k")
+
 		m, _ = update(t, m, press('j'))
+		if got := column(t, plainLines(m.View())[1], "↑/k"); got != want {
+			t.Errorf("first key on a row that is not shared starts at column %d, want %d", got, want)
+		}
+		m, _ = update(t, m, press('s'))
+		if got := column(t, plainLines(m.View())[1], "enter"); got != want {
+			t.Errorf("first key of the dialog starts at column %d, want %d", got, want)
+		}
+		m, _ = update(t, m, pressKey(tea.KeyEscape))
+		m, _ = update(t, m, press('k'))
+		m, _ = update(t, m, pressKey(tea.KeyEnter))
+		if got := column(t, plainLines(m.View())[1], "↑/k"); got != want {
+			t.Errorf("first key of the access log starts at column %d, want %d", got, want)
+		}
+	})
+
+	t.Run("keys that fit a narrow window are not marked as cut", func(t *testing.T) {
+		m, _ := update(t, scanned(t, &fakeDeps{}, three...), tea.WindowSizeMsg{Width: 48, Height: 24})
+		expectKeys(t, m, []string{"s share", "q quit"}, []string{"…"})
+	})
+
+	t.Run("keys wider than a narrow window still keep their distance from the logo", func(t *testing.T) {
+		m := shared(t, scanned(t, &fakeDeps{}, three...), allowedEntry)
+		m, _ = update(t, m, tea.WindowSizeMsg{Width: 48, Height: 24})
+		lines := plainLines(m.View())
+		if got, want := column(t, lines[1], "↑/k"), lipgloss.Width(" "+logo[1])+headerGap; got != want {
+			t.Errorf("first key starts at column %d, want %d", got, want)
+		}
+		expectKeys(t, m, []string{"…"}, nil)
+	})
+
+	t.Run("tagline and every key of a shared row fit in 80 columns", func(t *testing.T) {
+		m := scanned(t, &fakeDeps{}, three...)
 		m = shared(t, m, allowedEntry)
-		m, _ = update(t, m, tea.WindowSizeMsg{Width: 60, Height: 24})
-		expectText(t, m, nil, []string{"refresh 3s"})
-		expectKeys(t, m, []string{"c copy", "q quit"}, []string{"…"})
+		expectText(t, m, []string{tagline}, nil)
+		expectKeys(t, m, []string{"↑/k up", "enter access log", "c copy", "q quit"}, []string{"…"})
+	})
+
+	t.Run("panel title carries the counts and the refresh interval", func(t *testing.T) {
+		m := scanned(t, &fakeDeps{}, three...)
+		m = shared(t, m, allowedEntry)
+		for _, tt := range []struct {
+			width int
+			want  string
+		}{{80, " 3 services · 1 share · refresh 3s ─╮"}, {40, "───╮"}} {
+			m, _ = update(t, m, tea.WindowSizeMsg{Width: tt.width, Height: 24})
+			lines := plainLines(m.View())
+			if top := lines[lineContaining(t, lines, "╭─ Local services")]; !strings.HasSuffix(top, tt.want) {
+				t.Errorf("panel title at %d columns = %q, want it to end with %q", tt.width, top, tt.want)
+			}
+		}
 	})
 
 	t.Run("empty allow input shows the whole example", func(t *testing.T) {
@@ -377,9 +431,9 @@ func TestKeyGrid(t *testing.T) {
 		bindings []key.Binding
 		want     []string
 	}{
-		{"two columns", []key.Binding{keys.up, keys.down, keys.share, keys.quit}, []string{
+		{"rows are as wide as each other", []key.Binding{keys.up, keys.down, keys.share, keys.quit}, []string{
 			"↑/k up     s share",
-			"↓/j down   q quit",
+			"↓/j down   q quit ",
 		}},
 		{"keys and descriptions line up inside a column", []key.Binding{keys.up, keys.down, keys.open, keys.stop, keys.copy, keys.quit}, []string{
 			"↑/k up     enter access log   c copy",
@@ -387,7 +441,7 @@ func TestKeyGrid(t *testing.T) {
 		}},
 		{"odd number leaves the last cell empty", []key.Binding{keys.up, keys.down, keys.quit}, []string{
 			"↑/k up     q quit",
-			"↓/j down",
+			"↓/j down         ",
 		}},
 	}
 	for _, tt := range tests {
