@@ -28,13 +28,23 @@ type Config struct {
 	Copy    func(text string) error
 }
 
+type screen int
+
+const (
+	screenServices screen = iota
+	screenAccess
+)
+
 // Model is the Bubble Tea model of the t5s screen.
 type Model struct {
 	cfg       Config
 	services  []discovery.Service
 	shares    []activeShare
 	opening   []discovery.Service
+	screen    screen
 	cursor    int
+	offset    int
+	access    accessView
 	scanned   bool
 	err       error
 	dialog    *shareDialog
@@ -69,6 +79,11 @@ func (m Model) Init() tea.Cmd {
 
 // Update applies msg to the model.
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	next, cmd := m.update(msg)
+	return next.scrolled(), cmd
+}
+
+func (m Model) update(msg tea.Msg) (Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case scannedMsg:
 		return m.applyScan(msg), tickCmd()
@@ -141,9 +156,12 @@ func (m Model) selectedRow() (row, bool) {
 	return rows[m.cursor], true
 }
 
-func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+func (m Model) handleKey(msg tea.KeyPressMsg) (Model, tea.Cmd) {
 	if m.dialog != nil {
 		return m.handleDialogKey(msg)
+	}
+	if m.screen == screenAccess {
+		return m.handleAccessKey(msg)
 	}
 	selected, hasSelection := m.selectedRow()
 	switch {
@@ -153,6 +171,8 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		m.cursor = max(m.cursor-1, 0)
 	case key.Matches(msg, m.keys.down):
 		m.cursor = min(m.cursor+1, max(len(m.rows())-1, 0))
+	case hasSelection && key.Matches(msg, m.keys.open):
+		return m.openAccess(selected)
 	case hasSelection && key.Matches(msg, m.keys.share):
 		return m.openDialog(selected)
 	case hasSelection && key.Matches(msg, m.keys.stop):

@@ -9,6 +9,8 @@ type keyMap struct {
 	stop    key.Binding
 	copy    key.Binding
 	quit    key.Binding
+	open    key.Binding
+	back    key.Binding
 	confirm key.Binding
 	cancel  key.Binding
 	next    key.Binding
@@ -24,6 +26,8 @@ func newKeyMap() keyMap {
 		stop:    key.NewBinding(key.WithKeys("x"), key.WithHelp("x", "stop")),
 		copy:    key.NewBinding(key.WithKeys("c"), key.WithHelp("c", "copy")),
 		quit:    key.NewBinding(key.WithKeys("q", "ctrl+c"), key.WithHelp("q", "quit")),
+		open:    key.NewBinding(key.WithKeys("enter"), key.WithHelp("enter", "access log")),
+		back:    key.NewBinding(key.WithKeys("esc"), key.WithHelp("esc", "back")),
 		confirm: key.NewBinding(key.WithKeys("enter"), key.WithHelp("enter", "share")),
 		cancel:  key.NewBinding(key.WithKeys("esc"), key.WithHelp("esc", "cancel")),
 		next:    key.NewBinding(key.WithKeys("tab", "shift+tab"), key.WithHelp("tab", "switch")),

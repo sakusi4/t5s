@@ -19,6 +19,9 @@ var logo = []string{
 }
 
 func (m Model) headerLines(width int) []string {
+	if !m.showsHeader() {
+		return nil
+	}
 	left := make([]string, len(logo))
 	for i, row := range logo {
 		left[i] = " " + lipgloss.NewStyle().Foreground(logoGradient[i]).Bold(true).Render(row)

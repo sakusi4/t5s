@@ -15,19 +15,24 @@ import (
 
 const (
 	servicesTitle    = "Local services"
-	sharesTitle      = "Active shares"
 	accessTitle      = "Access"
 	dialogTitle      = "Share %s (%s)"
 	nameTitle        = "NAME"
 	frameworkTitle   = "FRAMEWORK"
 	addrTitle        = "ADDRESS"
+	expiresTitle     = "EXPIRES"
+	urlTitle         = "URL"
+	clientTitle      = "ADDRESS"
+	verdictTitle     = "VERDICT"
+	requestsTitle    = "REQUESTS"
+	lastSeenTitle    = "LAST SEEN"
 	allowLabel       = "Allow   "
 	expireLabel      = "Expire  "
 	noServicesText   = "No local web services found."
-	noSharesText     = "No active shares. Press s to share the selected service."
-	noAccessText     = "Requests to the selected share appear here."
-	untrackedText    = "+%d requests from other addresses"
-	sharedNote       = "shared"
+	noAccessText     = "No requests yet."
+	rangeText        = "%d–%d of %d"
+	addressesText    = "%d addresses"
+	untrackedText    = "+%d untracked requests"
 	openingNote      = "opening tunnel…"
 	notRespondingTag = "not responding"
 	allowedTag       = "allowed"
@@ -36,12 +41,13 @@ const (
 	runningMark      = "●"
 	sharedMark       = "◉"
 	hintSeparator    = " · "
+	ellipsis         = "…"
 	rowIndent        = 3
-	columnGap        = 2
-	columnShare      = 5
+	columnGap        = 3
 	borderWidth      = 1
-	maxAccessRows    = 6
-	dialogRows       = 4
+	footerHeight     = 2
+	dialogHeight     = 6
+	minHeaderHeight  = 16
 	defaultWidth     = 80
 	defaultHeight    = 24
 )
@@ -50,15 +56,18 @@ const (
 func (m Model) View() tea.View {
 	inner := m.width - 2*borderWidth
 	header := m.headerLines(m.width)
-	footer := m.footerLines()
-	lower := m.lowerPanels(inner)
-	table, selected := m.tableLines(inner)
-	filler := make([]string, max(m.height-len(header)-len(footer)-len(lower)-len(table)-2*borderWidth, 0))
+	body, cursorLine := m.bodyLines(inner)
+	var dialog []string
+	if m.dialog != nil {
+		dialog = m.dialog.lines(inner, m.keys)
+	}
 
-	lines := slices.Concat(header, panel(servicesTitle, slices.Concat(table, filler), inner), lower, footer)
+	lines := slices.Concat(header, body, dialog, m.footerLines())
 	for i, line := range lines {
 		lines[i] = fit(line, m.width)
 	}
+	overflow := max(len(lines)-m.height, 0)
+	lines = append(lines[overflow:], make([]string, max(m.height-len(lines), 0))...)
 
 	v := tea.NewView(strings.Join(lines, "\n"))
 	v.AltScreen = true
@@ -66,63 +75,122 @@ func (m Model) View() tea.View {
 	v.ForegroundColor = white
 	switch {
 	case m.dialog != nil:
-		dialogTop := len(header) + len(table) + len(filler) + 2*borderWidth
-		v.Cursor = m.dialog.cursor(borderWidth+1, dialogTop+borderWidth)
-	case len(m.rows()) > 0:
-		v.Cursor = tea.NewCursor(borderWidth, len(header)+borderWidth+selected)
+		v.Cursor = m.dialog.cursor(borderWidth+1, len(header)+len(body)+borderWidth-overflow)
+	case cursorLine >= 0:
+		v.Cursor = tea.NewCursor(borderWidth, len(header)+cursorLine-overflow)
 		v.Cursor.Shape = tea.CursorBar
 		v.Cursor.Blink = false
 	}
 	return v
 }
 
-func (m Model) lowerPanels(inner int) []string {
+func (m Model) showsHeader() bool {
+	return m.height >= minHeaderHeight
+}
+
+func (m Model) bodyHeight() int {
+	height := m.height - footerHeight
+	if m.showsHeader() {
+		height -= len(logo)
+	}
 	if m.dialog != nil {
-		return m.dialog.lines(inner, m.keys)
+		height -= dialogHeight
 	}
-	return slices.Concat(panel(sharesTitle, m.shareLines(), inner), panel(m.accessPanelTitle(), m.accessLines(), inner))
+	return max(height, 2*borderWidth+1)
 }
 
-func panel(title string, content []string, inner int) []string {
-	rule := strings.Repeat("─", max(inner-lipgloss.Width("─ "+title+" "), 0))
-	top := borderStyle.Render("╭─ ") + panelStyle.Render(title) + " " + borderStyle.Render(rule+"╮")
-
-	side := borderStyle.Render("│")
-	lines := []string{top}
-	for _, line := range content {
-		lines = append(lines, side+fit(line, inner)+side)
-	}
-	return append(lines, borderStyle.Render("╰"+strings.Repeat("─", max(inner, 0))+"╯"))
+func (m Model) visibleRows() int {
+	return max(m.bodyHeight()-2*borderWidth-1, 1)
 }
 
-func (m Model) tableLines(inner int) (lines []string, selected int) {
-	indent := strings.Repeat(" ", rowIndent)
+func (m Model) visibleAccesses() int {
+	return max(m.bodyHeight()-2*borderWidth-2, 1)
+}
+
+func (m Model) bodyLines(inner int) (lines []string, cursorLine int) {
+	if m.screen == screenAccess {
+		if current, ok := m.accessShare(); ok {
+			return m.accessPanel(current, inner)
+		}
+	}
+	return m.servicesPanel(inner)
+}
+
+func (m Model) servicesPanel(inner int) (lines []string, cursorLine int) {
 	rows := m.rows()
-	if m.scanned && len(rows) == 0 {
-		return []string{"", emptyStyle.Render(indent + noServicesText)}, 0
+	content := make([]string, 0, m.bodyHeight())
+	cursorLine = -1
+	switch {
+	case m.scanned && len(rows) == 0:
+		content = append(content, "", emptyStyle.Render(strings.Repeat(" ", rowIndent)+noServicesText))
+	default:
+		table := m.serviceTable(rows, inner)
+		content = append(content, table...)
+		if len(rows) > 0 {
+			cursorLine = borderWidth + 1 + m.cursor - m.offset
+		}
 	}
+	return panel(servicesTitle, rangeLabel(m.offset, m.visibleRows(), len(rows)), pad2(content, m.bodyHeight()-2*borderWidth), inner), cursorLine
+}
 
-	nameWidth, frameworkWidth, addrWidth := lipgloss.Width(nameTitle), lipgloss.Width(frameworkTitle), lipgloss.Width(addrTitle)
+func (m Model) serviceTable(rows []row, inner int) []string {
+	widths := []int{lipgloss.Width(nameTitle), lipgloss.Width(frameworkTitle), lipgloss.Width(addrTitle), lipgloss.Width(expiresTitle)}
 	for _, r := range rows {
-		nameWidth = max(nameWidth, lipgloss.Width(displayName(r.service)))
-		frameworkWidth = max(frameworkWidth, lipgloss.Width(displayFramework(r.service)))
-		addrWidth = max(addrWidth, lipgloss.Width(displayAddr(r.service)))
+		cells := m.cells(r)
+		for i := range widths {
+			widths[i] = max(widths[i], lipgloss.Width(cells[i]))
+		}
 	}
-	nameWidth = max(nameWidth+columnGap, inner/columnShare)
-	frameworkWidth = max(frameworkWidth+columnGap, inner/columnShare)
-	addrWidth += columnGap
+	indent := strings.Repeat(" ", rowIndent)
+	titles := []string{nameTitle, frameworkTitle, addrTitle, expiresTitle, urlTitle}
+	lines := []string{columnStyle.Render(indent + strings.Join(alignCells(widths, titles), ""))}
 
-	lines = []string{columnStyle.Render(indent + pad(nameTitle, nameWidth) + pad(frameworkTitle, frameworkWidth) + addrTitle)}
-	selected = len(lines) + m.cursor
-	for i, r := range rows {
-		name, framework, addr := pad(displayName(r.service), nameWidth), pad(displayFramework(r.service), frameworkWidth), pad(displayAddr(r.service), addrWidth)
+	end := min(m.offset+m.visibleRows(), len(rows))
+	for i := m.offset; i < end; i++ {
+		r := rows[i]
+		cells := alignCells(widths, m.cells(r))
 		if i == m.cursor {
-			lines = append(lines, selectedStyle.Render(fit(" "+r.mark()+" "+name+framework+addr+r.note(), inner)))
+			lines = append(lines, selectedStyle.Render(fit(" "+r.mark()+" "+strings.Join(cells, ""), inner)))
 			continue
 		}
-		lines = append(lines, " "+r.markStyle().Render(r.mark())+" "+nameStyle.Render(name)+frameworkStyle.Render(framework)+addrStyle.Render(addr)+noteStyle.Render(r.note()))
+		styles := []lipgloss.Style{nameStyle, frameworkStyle, r.addrStyle(), detailStyle, r.urlStyle()}
+		line := " " + r.markStyle().Render(r.mark()) + " "
+		for j, cell := range cells {
+			line += styles[j].Render(cell)
+		}
+		lines = append(lines, line)
 	}
-	return lines, selected
+	return lines
+}
+
+func (m Model) cells(r row) []string {
+	cells := []string{displayName(r.service), displayFramework(r.service), displayAddr(r.service), "", ""}
+	switch {
+	case r.share != nil:
+		cells[3] = formatSpan(r.share.ExpiresAt().Sub(m.now))
+		cells[4] = r.share.URL().String()
+	case r.opening:
+		cells[4] = openingNote
+	}
+	if !r.responding {
+		cells[4] = strings.TrimSpace(cells[4] + hintSeparator + notRespondingTag)
+	}
+	return cells
+}
+
+func alignCells(widths []int, cells []string) []string {
+	last := len(cells) - 1
+	for last > 0 && cells[last] == "" {
+		last--
+	}
+	aligned := make([]string, last+1)
+	for i := range aligned {
+		aligned[i] = cells[i]
+		if i < last {
+			aligned[i] = pad(cells[i], widths[i]+columnGap)
+		}
+	}
+	return aligned
 }
 
 func (r row) mark() string {
@@ -139,84 +207,97 @@ func (r row) markStyle() lipgloss.Style {
 	return runningStyle
 }
 
-func (r row) note() string {
-	var notes []string
-	switch {
-	case r.share != nil:
-		notes = append(notes, sharedNote)
-	case r.opening:
-		notes = append(notes, openingNote)
-	}
+func (r row) addrStyle() lipgloss.Style {
 	if !r.responding {
-		notes = append(notes, notRespondingTag)
+		return downStyle
 	}
-	return strings.Join(notes, hintSeparator)
+	return addrStyle
 }
 
-func (m Model) shareLines() []string {
-	if len(m.shares) == 0 {
-		return []string{emptyStyle.Render(" " + noSharesText)}
+func (r row) urlStyle() lipgloss.Style {
+	if r.share == nil {
+		return noteStyle
 	}
-	nameWidth, urlWidth := 0, 0
-	for _, a := range m.shares {
-		nameWidth = max(nameWidth, lipgloss.Width(displayName(a.service)))
-		urlWidth = max(urlWidth, lipgloss.Width(a.share.URL().String()))
-	}
-	lines := make([]string, len(m.shares))
-	for i, a := range m.shares {
-		left := formatSpan(a.share.ExpiresAt().Sub(m.now)) + " left"
-		lines[i] = " " + nameStyle.Render(pad(displayName(a.service), nameWidth+columnGap)) +
-			urlStyle.Render(pad(a.share.URL().String(), urlWidth+columnGap)) + detailStyle.Render(left)
-	}
-	return lines
+	return urlStyle
 }
 
-func (m Model) accessPanelTitle() string {
-	if selected, ok := m.selectedShare(); ok {
-		return accessTitle + hintSeparator + displayName(selected.service)
-	}
-	return accessTitle
-}
+func (m Model) accessPanel(current activeShare, inner int) (lines []string, cursorLine int) {
+	indent := strings.Repeat(" ", rowIndent)
+	info := " " + urlStyle.Render(current.share.URL().String()) + detailStyle.Render(hintSeparator+formatSpan(current.share.ExpiresAt().Sub(m.now))+" left")
+	content := []string{info}
+	cursorLine = -1
 
-func (m Model) selectedShare() (activeShare, bool) {
-	selected, ok := m.selectedRow()
-	if !ok {
-		return activeShare{}, false
-	}
-	i := slices.IndexFunc(m.shares, func(a activeShare) bool { return a.service.Addr.Port() == selected.service.Addr.Port() })
-	if i < 0 {
-		return activeShare{}, false
-	}
-	return m.shares[i], true
-}
-
-func (m Model) accessLines() []string {
-	selected, ok := m.selectedShare()
-	if !ok || len(selected.accesses) == 0 {
-		return []string{emptyStyle.Render(" " + noAccessText)}
-	}
-	shown := selected.accesses[:min(len(selected.accesses), maxAccessRows)]
-	addrWidth := 0
-	for _, a := range shown {
-		addrWidth = max(addrWidth, lipgloss.Width(a.Addr.String()))
-	}
-	lines := make([]string, 0, len(shown)+1)
-	for _, a := range shown {
-		verdict := blockedStyle.Render(pad(blockedTag, len(blockedTag)+columnGap))
-		if a.Allowed {
-			verdict = allowedStyle.Render(pad(allowedTag, len(allowedTag)+columnGap))
+	if len(current.accesses) == 0 {
+		content = append(content, emptyStyle.Render(indent+noAccessText))
+	} else {
+		widths := []int{lipgloss.Width(clientTitle), lipgloss.Width(verdictTitle), lipgloss.Width(requestsTitle)}
+		for _, a := range current.accesses {
+			widths[0] = max(widths[0], lipgloss.Width(a.Addr.String()))
 		}
-		lines = append(lines, " "+nameStyle.Render(pad(a.Addr.String(), addrWidth+columnGap))+verdict+
-			detailStyle.Render(pad(fmt.Sprintf("%d req", a.Requests), 10)+formatSpan(m.now.Sub(a.LastSeen))+" ago"))
+		titles := []string{clientTitle, verdictTitle, requestsTitle, lastSeenTitle}
+		content = append(content, columnStyle.Render(indent+strings.Join(alignCells(widths, titles), "")))
+		end := min(m.access.offset+m.visibleAccesses(), len(current.accesses))
+		for i := m.access.offset; i < end; i++ {
+			a := current.accesses[i]
+			verdict, verdictStyle := blockedTag, blockedStyle
+			if a.Allowed {
+				verdict, verdictStyle = allowedTag, allowedStyle
+			}
+			seen := formatSpan(m.now.Sub(a.LastSeen)) + " ago"
+			cells := alignCells(widths, []string{a.Addr.String(), verdict, fmt.Sprintf("%d", a.Requests), seen})
+			if i == m.access.cursor {
+				content = append(content, selectedStyle.Render(fit(indent+strings.Join(cells, ""), inner)))
+				continue
+			}
+			content = append(content, indent+nameStyle.Render(cells[0])+verdictStyle.Render(cells[1])+detailStyle.Render(cells[2]+cells[3]))
+		}
+		cursorLine = borderWidth + 2 + m.access.cursor - m.access.offset
 	}
-	hidden := selected.untracked
-	for _, a := range selected.accesses[len(shown):] {
-		hidden += a.Requests
+
+	label := fmt.Sprintf(addressesText, len(current.accesses))
+	if span := rangeLabel(m.access.offset, m.visibleAccesses(), len(current.accesses)); span != "" {
+		label = span + " addresses"
 	}
-	if hidden > 0 {
-		lines = append(lines, emptyStyle.Render(" "+fmt.Sprintf(untrackedText, hidden)))
+	if current.untracked > 0 {
+		label += hintSeparator + fmt.Sprintf(untrackedText, current.untracked)
 	}
-	return lines
+	title := accessTitle + hintSeparator + displayName(current.service)
+	return panel(title, label, pad2(content, m.bodyHeight()-2*borderWidth), inner), cursorLine
+}
+
+func rangeLabel(offset, visible, total int) string {
+	if total <= visible {
+		return ""
+	}
+	return fmt.Sprintf(rangeText, offset+1, min(offset+visible, total), total)
+}
+
+func pad2(lines []string, height int) []string {
+	if len(lines) >= height {
+		return lines[:max(height, 0)]
+	}
+	return append(lines, make([]string, height-len(lines))...)
+}
+
+func panel(title, right string, content []string, inner int) []string {
+	left := "─ " + title + " "
+	tail := ""
+	if right != "" {
+		tail = " " + right + " ─"
+	}
+	rule := strings.Repeat("─", max(inner-lipgloss.Width(left)-lipgloss.Width(tail), 0))
+	top := borderStyle.Render("╭─ ") + panelStyle.Render(title) + " " + borderStyle.Render(rule)
+	if right != "" {
+		top += " " + detailStyle.Render(right) + borderStyle.Render(" ─")
+	}
+	top += borderStyle.Render("╮")
+
+	side := borderStyle.Render("│")
+	lines := []string{top}
+	for _, line := range content {
+		lines = append(lines, side+fit(line, inner)+side)
+	}
+	return append(lines, borderStyle.Render("╰"+strings.Repeat("─", max(inner, 0))+"╯"))
 }
 
 func (d shareDialog) lines(inner int, keys keyMap) []string {
@@ -241,7 +322,7 @@ func (d shareDialog) lines(inner int, keys keyMap) []string {
 		problem,
 		" " + hints(keys.dialogBindings()),
 	}
-	return panel(fmt.Sprintf(dialogTitle, displayName(d.service), displayAddr(d.service)), content, inner)
+	return panel(fmt.Sprintf(dialogTitle, displayName(d.service), displayAddr(d.service)), "", content, inner)
 }
 
 func (d shareDialog) cursor(x, y int) *tea.Cursor {
@@ -276,10 +357,13 @@ func (m Model) footerLines() []string {
 
 func (m Model) visibleKeys() []key.Binding {
 	bindings := []key.Binding{m.keys.up, m.keys.down}
+	if m.screen == screenAccess {
+		return append(bindings, m.keys.back, m.keys.copy, m.keys.stop, m.keys.quit)
+	}
 	if selected, ok := m.selectedRow(); ok {
 		switch {
 		case selected.share != nil:
-			bindings = append(bindings, m.keys.stop, m.keys.copy)
+			bindings = append(bindings, m.keys.open, m.keys.stop, m.keys.copy)
 		case !selected.opening:
 			bindings = append(bindings, m.keys.share)
 		}
@@ -311,7 +395,10 @@ func pad(s string, width int) string {
 }
 
 func fit(s string, width int) string {
-	return pad(lipgloss.NewStyle().MaxWidth(max(width, 0)).Render(s), width)
+	if lipgloss.Width(s) <= width {
+		return pad(s, width)
+	}
+	return pad(lipgloss.NewStyle().MaxWidth(max(width-lipgloss.Width(ellipsis), 0)).Render(s)+ellipsis, width)
 }
 
 func displayName(s discovery.Service) string {

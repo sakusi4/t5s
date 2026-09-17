@@ -116,9 +116,7 @@ func TestModel_Share(t *testing.T) {
 		m := shared(t, scanned(t, &fakeDeps{}, front), allowedEntry)
 		stopped := m.shares[0].share
 		m, _ = update(t, m, press('x'))
-		if err := stopped.Wait(); err != nil {
-			t.Fatalf("share.Wait() error = %v, want nil after x", err)
-		}
+		waitStopped(t, stopped)
 		m, _ = update(t, m, shareEndedMsg{port: front.Addr.Port()})
 		if len(m.shares) != 0 || m.flash != "front share stopped" {
 			t.Errorf("shares = %d, flash = %q, want none and %q", len(m.shares), m.flash, "front share stopped")

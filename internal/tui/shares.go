@@ -91,7 +91,7 @@ func (m Model) rows() []row {
 	return rows
 }
 
-func (m Model) openDialog(selected row) (tea.Model, tea.Cmd) {
+func (m Model) openDialog(selected row) (Model, tea.Cmd) {
 	if selected.share != nil || selected.opening {
 		return m.withFlash(fmt.Sprintf(alreadySharedText, displayName(selected.service)))
 	}
@@ -100,7 +100,7 @@ func (m Model) openDialog(selected row) (tea.Model, tea.Cmd) {
 	return m, cmd
 }
 
-func (m Model) handleDialogKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+func (m Model) handleDialogKey(msg tea.KeyPressMsg) (Model, tea.Cmd) {
 	dialog, cmd, outcome := m.dialog.update(msg, m.keys)
 	switch outcome {
 	case dialogOpen:
@@ -128,7 +128,7 @@ func (m Model) startShareCmd(service discovery.Service, req share.Request) tea.C
 	}
 }
 
-func (m Model) handleShareMsg(msg tea.Msg) (tea.Model, tea.Cmd) {
+func (m Model) handleShareMsg(msg tea.Msg) (Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case shareStartedMsg:
 		return m.shareStarted(msg)
@@ -151,7 +151,7 @@ func (m Model) handleShareMsg(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-func (m Model) shareStarted(msg shareStartedMsg) (tea.Model, tea.Cmd) {
+func (m Model) shareStarted(msg shareStartedMsg) (Model, tea.Cmd) {
 	m.opening = withoutPort(m.opening, msg.service.Addr.Port())
 	m.shares = append(slices.Clone(m.shares), activeShare{service: msg.service, share: msg.share})
 	wait := func() tea.Msg {
@@ -164,13 +164,16 @@ func (m Model) shareStarted(msg shareStartedMsg) (tea.Model, tea.Cmd) {
 	return m, tea.Batch(wait, m.copyCmd(msg.share.URL().String()))
 }
 
-func (m Model) shareEnded(msg shareEndedMsg) (tea.Model, tea.Cmd) {
+func (m Model) shareEnded(msg shareEndedMsg) (Model, tea.Cmd) {
 	i := slices.IndexFunc(m.shares, func(a activeShare) bool { return a.service.Addr.Port() == msg.port })
 	if i < 0 {
 		return m, nil
 	}
 	name := displayName(m.shares[i].service)
 	m.shares = slices.Delete(slices.Clone(m.shares), i, i+1)
+	if m.screen == screenAccess && m.access.port == msg.port {
+		m = m.closeAccess()
+	}
 
 	text := fmt.Sprintf(stoppedText, name)
 	switch {
@@ -182,7 +185,7 @@ func (m Model) shareEnded(msg shareEndedMsg) (tea.Model, tea.Cmd) {
 	return m.afterShareGone(text)
 }
 
-func (m Model) afterShareGone(text string) (tea.Model, tea.Cmd) {
+func (m Model) afterShareGone(text string) (Model, tea.Cmd) {
 	selected, hadSelection := m.selectedRow()
 	m = m.selectPort(selected.service.Addr.Port(), hadSelection)
 	if m.quitting && len(m.shares) == 0 && len(m.opening) == 0 {
@@ -198,7 +201,7 @@ func shareFailure(msg shareFailedMsg) string {
 	return fmt.Sprintf(shareFailedTemplate, displayName(msg.service), msg.err)
 }
 
-func (m Model) stopShare(selected row) (tea.Model, tea.Cmd) {
+func (m Model) stopShare(selected row) (Model, tea.Cmd) {
 	if selected.share == nil {
 		return m.withFlash(fmt.Sprintf(notSharedText, displayName(selected.service)))
 	}
@@ -206,7 +209,7 @@ func (m Model) stopShare(selected row) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-func (m Model) copyURL(selected row) (tea.Model, tea.Cmd) {
+func (m Model) copyURL(selected row) (Model, tea.Cmd) {
 	if selected.share == nil {
 		return m.withFlash(fmt.Sprintf(notSharedText, displayName(selected.service)))
 	}
@@ -219,7 +222,7 @@ func (m Model) copyCmd(text string) tea.Cmd {
 	}
 }
 
-func (m Model) quit() (tea.Model, tea.Cmd) {
+func (m Model) quit() (Model, tea.Cmd) {
 	if len(m.shares) == 0 && len(m.opening) == 0 {
 		return m, tea.Quit
 	}
@@ -241,12 +244,7 @@ func (m Model) withFlash(text string) (Model, tea.Cmd) {
 
 func (m Model) applyClock(now time.Time) Model {
 	m.now = now
-	shares := slices.Clone(m.shares)
-	for i := range shares {
-		shares[i].accesses, shares[i].untracked = shares[i].share.Accesses()
-	}
-	m.shares = shares
-	return m
+	return m.refreshAccesses()
 }
 
 func withoutPort(services []discovery.Service, port uint16) []discovery.Service {

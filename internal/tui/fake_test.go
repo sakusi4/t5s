@@ -3,6 +3,7 @@ package tui
 import (
 	"context"
 	"errors"
+	"net/http"
 	"net/netip"
 	"net/url"
 	"sync"
@@ -16,8 +17,9 @@ import (
 )
 
 const (
-	fakeURL      = "https://fake-abc-def.trycloudflare.com"
-	awaitTimeout = 5 * time.Second
+	fakeURL            = "https://fake-abc-def.trycloudflare.com"
+	fakeClientIPHeader = "X-Fake-Client-IP"
+	awaitTimeout       = 5 * time.Second
 )
 
 type fakeTunnel struct {
@@ -36,6 +38,7 @@ func (f fakeTunnel) Wait() error {
 type fakeDeps struct {
 	mu      sync.Mutex
 	copied  []string
+	local   netip.AddrPort
 	openErr error
 	copyErr error
 }
@@ -44,11 +47,14 @@ func (f *fakeDeps) config(services ...discovery.Service) Config {
 	return Config{
 		Scan: func(context.Context) ([]discovery.Service, error) { return services, nil },
 		Backend: share.Backend{
-			ClientIPHeader: "X-Fake-Client-IP",
-			Open: func(ctx context.Context, _ netip.AddrPort) (share.Tunnel, error) {
+			ClientIPHeader: fakeClientIPHeader,
+			Open: func(ctx context.Context, local netip.AddrPort) (share.Tunnel, error) {
 				if f.openErr != nil {
 					return nil, f.openErr
 				}
+				f.mu.Lock()
+				defer f.mu.Unlock()
+				f.local = local
 				return fakeTunnel{done: ctx.Done()}, nil
 			},
 		},
@@ -65,6 +71,37 @@ func (f *fakeDeps) clipboard() []string {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return append([]string(nil), f.copied...)
+}
+
+func (f *fakeDeps) visit(t *testing.T, client string) {
+	t.Helper()
+	f.mu.Lock()
+	local := f.local
+	f.mu.Unlock()
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, "http://"+local.String()+"/", nil)
+	if err != nil {
+		t.Fatalf("http.NewRequestWithContext() error = %v", err)
+	}
+	req.Header.Set(fakeClientIPHeader, client)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("request to the proxy as %s: error = %v", client, err)
+	}
+	resp.Body.Close()
+}
+
+func waitStopped(t *testing.T, running *share.Share) {
+	t.Helper()
+	stopped := make(chan error, 1)
+	go func() { stopped <- running.Wait() }()
+	select {
+	case err := <-stopped:
+		if err != nil {
+			t.Fatalf("share.Wait() error = %v, want nil", err)
+		}
+	case <-time.After(awaitTimeout):
+		t.Fatalf("share is still running after %s", awaitTimeout)
+	}
 }
 
 func service(port uint16, name string) discovery.Service {
