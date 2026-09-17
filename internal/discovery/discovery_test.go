@@ -5,9 +5,20 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
-	"sync/atomic"
+	"net/netip"
 	"testing"
 )
+
+const rememberedHeader = "X-Remembered"
+
+func probedAt(s *Scanner, addr netip.AddrPort) (listener, bool) {
+	for l := range s.probed {
+		if dialAddr(l.addr) == addr {
+			return l, true
+		}
+	}
+	return listener{}, false
+}
 
 func TestScan(t *testing.T) {
 	t.Run("finds a running http server with its process", func(t *testing.T) {
@@ -35,28 +46,30 @@ func TestScan(t *testing.T) {
 	})
 
 	t.Run("a listener is probed only once across scans", func(t *testing.T) {
-		var requests atomic.Int32
-		srv := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
-			requests.Add(1)
-		}))
+		srv := httptest.NewServer(http.NotFoundHandler())
 		t.Cleanup(srv.Close)
+		own := serverAddr(t, srv)
 
 		scanner := Scanner{includeOwnListeners: true}
-		for range 2 {
-			if _, err := scanner.Scan(t.Context()); err != nil {
-				t.Fatalf("Scan() error = %v", err)
-			}
+		if _, err := scanner.Scan(t.Context()); err != nil {
+			t.Fatalf("Scan() error = %v", err)
 		}
-		if got := requests.Load(); got != 1 {
-			t.Errorf("server received %d requests, want 1", got)
+		l, ok := probedAt(&scanner, own)
+		if !ok {
+			t.Fatalf("first Scan() did not probe %s", own)
+		}
+		scanner.probed[l] = probeResult{web: true, header: http.Header{rememberedHeader: {"yes"}}}
+
+		if _, err := scanner.Scan(t.Context()); err != nil {
+			t.Fatalf("Scan() error = %v", err)
+		}
+		if scanner.probed[l].header.Get(rememberedHeader) == "" {
+			t.Errorf("second Scan() probed %s again, want the remembered result kept", own)
 		}
 	})
 
 	t.Run("listeners of this process are neither listed nor probed", func(t *testing.T) {
-		var requests atomic.Int32
-		srv := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
-			requests.Add(1)
-		}))
+		srv := httptest.NewServer(http.NotFoundHandler())
 		t.Cleanup(srv.Close)
 		own := serverAddr(t, srv)
 
@@ -70,8 +83,8 @@ func TestScan(t *testing.T) {
 				t.Errorf("Scan() lists %+v, want listeners of this process skipped", s)
 			}
 		}
-		if got := requests.Load(); got != 0 {
-			t.Errorf("own server received %d requests, want 0", got)
+		if _, ok := probedAt(&scanner, own); ok {
+			t.Errorf("Scan() probed %s, want listeners of this process skipped", own)
 		}
 	})
 
