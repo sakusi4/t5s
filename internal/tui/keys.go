@@ -32,6 +32,6 @@ func newKeyMap() keyMap {
 	}
 }
 
-func (k keyMap) bindings() []key.Binding {
-	return []key.Binding{k.up, k.down, k.quit}
+func (k keyMap) dialogBindings() []key.Binding {
+	return []key.Binding{k.confirm, k.next, k.cancel}
 }

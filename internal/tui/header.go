@@ -41,8 +41,16 @@ func (m Model) status() string {
 	if !m.scanned {
 		return scanningStatus
 	}
-	if len(m.services) == 1 {
-		return "1 service"
+	status := plural(len(m.rows()), "service")
+	if len(m.shares) > 0 {
+		status += " · " + plural(len(m.shares), "share")
 	}
-	return fmt.Sprintf("%d services", len(m.services))
+	return status
+}
+
+func plural(n int, noun string) string {
+	if n == 1 {
+		return "1 " + noun
+	}
+	return fmt.Sprintf("%d %ss", n, noun)
 }
