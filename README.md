@@ -41,13 +41,13 @@ Press `enter` on a shared service to see who reached it:
 
 ## Install
 
-t5s runs [cloudflared](https://github.com/cloudflare/cloudflared) as a subprocess. Install it first (`brew install cloudflared` on macOS), then:
+On macOS:
 
 ```sh
-go install github.com/sakusi4/t5s/cmd/t5s@latest
+brew install sakusi4/tap/t5s
 ```
 
-Requires Go 1.27 or later. No Cloudflare account is needed.
+This also installs [cloudflared](https://github.com/cloudflare/cloudflared), which t5s runs as a subprocess. On other systems, install cloudflared yourself and take a binary from the [releases page](https://github.com/sakusi4/t5s/releases), or run `go install github.com/sakusi4/t5s/cmd/t5s@latest` with Go 1.27 or later. No Cloudflare account is needed.
 
 ## Usage
 

@@ -1,0 +1,57 @@
+version: 2
+
+project_name: t5s
+
+builds:
+  - main: ./cmd/t5s
+    env:
+      - CGO_ENABLED=0
+    goos: [darwin, linux, windows]
+    goarch: [amd64, arm64]
+    flags: [-trimpath]
+    ldflags: [-s -w]
+    mod_timestamp: "{{ .CommitTimestamp }}"
+
+archives:
+  - formats: [tar.gz]
+    format_overrides:
+      - goos: windows
+        formats: [zip]
+
+changelog:
+  sort: asc
+  groups:
+    - title: Features
+      regexp: "^feat"
+      order: 0
+    - title: Bug fixes
+      regexp: "^fix"
+      order: 1
+    - title: Performance
+      regexp: "^perf"
+      order: 2
+  filters:
+    exclude:
+      - "^docs"
+      - "^test"
+      - "^refactor"
+      - "^build"
+      - "^ci"
+      - "^chore"
+
+homebrew_casks:
+  - name: t5s
+    repository:
+      owner: sakusi4
+      name: homebrew-tap
+      token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"
+    homepage: https://github.com/sakusi4/t5s
+    description: Share localhost with only the people you allow
+    dependencies:
+      - formula: cloudflared
+    hooks:
+      post:
+        install: |
+          if OS.mac?
+            system_command "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "#{staged_path}/t5s"]
+          end
