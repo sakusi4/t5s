@@ -192,6 +192,52 @@ func TestModel_View(t *testing.T) {
 		}
 	})
 
+	t.Run("empty allow input shows the whole example", func(t *testing.T) {
+		m, _ := update(t, scanned(t, &fakeDeps{}, three...), press('s'))
+		expectText(t, m, []string{"Allow   203.0.113.42, 10.0.0.0/8"}, nil)
+	})
+
+	for _, tt := range []struct {
+		name        string
+		resizeFirst bool
+	}{{"opened in a narrow window", true}, {"narrowed while open", false}} {
+		t.Run("allow list longer than the dialog scrolls inside it when "+tt.name, func(t *testing.T) {
+			const width = 50
+			m := scanned(t, &fakeDeps{}, three...)
+			if tt.resizeFirst {
+				m, _ = update(t, m, tea.WindowSizeMsg{Width: width, Height: 24})
+			}
+			m, _ = update(t, m, press('s'))
+			m = typeText(t, m, "10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, 203.0.113.0/24")
+			m, _ = update(t, m, tea.WindowSizeMsg{Width: width, Height: 24})
+
+			got := m.View()
+			lines := plainLines(got)
+			allow := lines[lineContaining(t, lines, "Allow")]
+			if strings.Contains(allow, "…") || !strings.Contains(allow, "203.0.113.0/24") {
+				t.Errorf("allow line = %q, want the end of the list and no ellipsis", allow)
+			}
+			if got.Cursor == nil || got.Cursor.X >= width-borderWidth {
+				t.Errorf("View().Cursor = %+v, want it inside the %d column dialog", got.Cursor, width)
+			}
+		})
+	}
+
+	t.Run("remembered allow list longer than the dialog opens scrolled to its end", func(t *testing.T) {
+		const width = 50
+		m, _ := update(t, scanned(t, &fakeDeps{}, three...), tea.WindowSizeMsg{Width: width, Height: 24})
+		m = shared(t, m, "10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, 203.0.113.0/24")
+		m, _ = update(t, m, press('j'))
+		m, _ = update(t, m, press('s'))
+
+		got := m.View()
+		lines := plainLines(got)
+		allow := lines[lineContaining(t, lines, "Allow")]
+		if strings.Contains(allow, "…") || !strings.Contains(allow, "203.0.113.0/24") || got.Cursor == nil || got.Cursor.X >= width-borderWidth {
+			t.Errorf("allow line = %q, cursor = %+v, want the end of the list inside the dialog", allow, got.Cursor)
+		}
+	})
+
 	t.Run("screen is full and black", func(t *testing.T) {
 		got := New((&fakeDeps{}).config()).View()
 		if !got.AltScreen {

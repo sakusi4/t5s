@@ -93,6 +93,10 @@ func (m Model) update(msg tea.Msg) (Model, tea.Cmd) {
 		return m.applyClock(time.Time(msg)), clockCmd()
 	case tea.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height
+		if m.dialog != nil {
+			dialog := m.dialog.resized(m.allowWidth())
+			m.dialog = &dialog
+		}
 		return m, nil
 	case tea.KeyPressMsg:
 		return m.handleKey(msg)

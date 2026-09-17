@@ -22,18 +22,19 @@ func typeInto(d shareDialog, text string) shareDialog {
 }
 
 func TestShareDialog(t *testing.T) {
+	const allowWidth = 40
 	keys := newKeyMap()
 	target := service(5173, "front")
 
 	t.Run("starts on the allow field with the last list and one hour", func(t *testing.T) {
-		d, _ := newShareDialog(target, "10.0.0.0/8")
+		d, _ := newShareDialog(target, "10.0.0.0/8", allowWidth)
 		if d.field != fieldAllow || d.allow.Value() != "10.0.0.0/8" || expiryChoices[d.expiry] != time.Hour {
 			t.Errorf("dialog = field %d, allow %q, expiry %s, want allow field, 10.0.0.0/8, 1h", d.field, d.allow.Value(), expiryChoices[d.expiry])
 		}
 	})
 
 	t.Run("enter with a valid list submits the request", func(t *testing.T) {
-		d, _ := newShareDialog(target, "")
+		d, _ := newShareDialog(target, "", allowWidth)
 		d = typeInto(d, "203.0.113.42, 10.0.0.0/8")
 		d, _, _ = d.update(pressKey(tea.KeyTab), keys)
 		d, _, _ = d.update(pressKey(tea.KeyRight), keys)
@@ -52,7 +53,7 @@ func TestShareDialog(t *testing.T) {
 	})
 
 	t.Run("enter with a bad list keeps the dialog open and shows why", func(t *testing.T) {
-		d, _ := newShareDialog(target, "")
+		d, _ := newShareDialog(target, "", allowWidth)
 		d = typeInto(d, "0.0.0.0/0")
 		d, _, outcome := d.update(pressKey(tea.KeyEnter), keys)
 		if outcome != dialogOpen || d.err == nil {
@@ -66,7 +67,7 @@ func TestShareDialog(t *testing.T) {
 	})
 
 	t.Run("expiry stays within the choices", func(t *testing.T) {
-		d, _ := newShareDialog(target, "")
+		d, _ := newShareDialog(target, "", allowWidth)
 		d, _, _ = d.update(pressKey(tea.KeyTab), keys)
 		for range len(expiryChoices) + 2 {
 			d, _, _ = d.update(pressKey(tea.KeyLeft), keys)
@@ -83,7 +84,7 @@ func TestShareDialog(t *testing.T) {
 	})
 
 	t.Run("arrow keys edit the text while the allow field is active", func(t *testing.T) {
-		d, _ := newShareDialog(target, "")
+		d, _ := newShareDialog(target, "", allowWidth)
 		d, _, _ = d.update(pressKey(tea.KeyRight), keys)
 		if d.expiry != defaultExpiryIndex {
 			t.Errorf("expiry = %d, want it unchanged at %d", d.expiry, defaultExpiryIndex)
@@ -91,7 +92,7 @@ func TestShareDialog(t *testing.T) {
 	})
 
 	t.Run("tab switches between the fields", func(t *testing.T) {
-		d, _ := newShareDialog(target, "")
+		d, _ := newShareDialog(target, "", allowWidth)
 		d, _, _ = d.update(pressKey(tea.KeyTab), keys)
 		if d.field != fieldExpire {
 			t.Errorf("field after tab = %d, want expire", d.field)
@@ -103,7 +104,7 @@ func TestShareDialog(t *testing.T) {
 	})
 
 	t.Run("esc cancels", func(t *testing.T) {
-		d, _ := newShareDialog(target, "")
+		d, _ := newShareDialog(target, "", allowWidth)
 		if _, _, outcome := d.update(pressKey(tea.KeyEscape), keys); outcome != dialogCanceled {
 			t.Errorf("outcome = %d, want canceled", outcome)
 		}

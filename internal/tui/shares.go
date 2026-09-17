@@ -95,7 +95,7 @@ func (m Model) openDialog(selected row) (Model, tea.Cmd) {
 	if selected.share != nil || selected.opening {
 		return m.withFlash(fmt.Sprintf(alreadySharedText, displayName(selected.service)))
 	}
-	dialog, cmd := newShareDialog(selected.service, m.lastAllow)
+	dialog, cmd := newShareDialog(selected.service, m.lastAllow, m.allowWidth())
 	m.dialog = &dialog
 	return m, cmd
 }

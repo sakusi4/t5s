@@ -45,6 +45,8 @@ const (
 	rowIndent        = 3
 	columnGap        = 3
 	borderWidth      = 1
+	cursorWidth      = 1
+	dialogIndent     = " "
 	keysHeight       = 1
 	statusHeight     = 1
 	dialogHeight     = 6
@@ -98,6 +100,10 @@ func (m Model) bodyHeight() int {
 		height -= dialogHeight
 	}
 	return max(height, 2*borderWidth+1)
+}
+
+func (m Model) allowWidth() int {
+	return max(m.width-2*borderWidth-len(dialogIndent)-lipgloss.Width(allowLabel)-cursorWidth, 1)
 }
 
 func (m Model) visibleRows() int {
@@ -318,10 +324,10 @@ func (d shareDialog) lines(inner int, keys keyMap) []string {
 		problem = " " + errorStyle.Render(d.err.Error())
 	}
 	content := []string{
-		" " + allowLabelStyle.Render(allowLabel) + d.allow.View(),
-		" " + expireLabelStyle.Render(expireLabel) + strings.Join(choices, " "),
+		dialogIndent + allowLabelStyle.Render(allowLabel) + d.allow.View(),
+		dialogIndent + expireLabelStyle.Render(expireLabel) + strings.Join(choices, " "),
 		problem,
-		" " + hints(keys.dialogBindings()),
+		dialogIndent + hints(keys.dialogBindings()),
 	}
 	return panel(fmt.Sprintf(dialogTitle, displayName(d.service), displayAddr(d.service)), "", content, inner)
 }

@@ -46,14 +46,22 @@ type shareDialog struct {
 	request share.Request
 }
 
-func newShareDialog(service discovery.Service, lastAllow string) (shareDialog, tea.Cmd) {
+func newShareDialog(service discovery.Service, lastAllow string, allowWidth int) (shareDialog, tea.Cmd) {
 	input := textinput.New()
 	input.Prompt = ""
 	input.Placeholder = allowPlaceholder
+	input.SetWidth(allowWidth)
 	input.SetVirtualCursor(false)
 	input.SetValue(lastAllow)
 	focus := input.Focus()
 	return shareDialog{service: service, allow: input, expiry: defaultExpiryIndex}, focus
+}
+
+// resized returns the dialog with its allow input scrolled to fit allowWidth.
+func (d shareDialog) resized(allowWidth int) shareDialog {
+	d.allow.SetWidth(allowWidth)
+	d.allow.SetCursor(d.allow.Position())
+	return d
 }
 
 func (d shareDialog) update(msg tea.KeyPressMsg, keys keyMap) (shareDialog, tea.Cmd, dialogOutcome) {
