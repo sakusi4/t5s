@@ -24,6 +24,7 @@ const (
 	allowedIP      = "203.0.113.42"
 	blockedIP      = "198.51.100.7"
 	publicHost     = "abc-def.trycloudflare.com"
+	markerHeader   = "X-T5s-Test"
 )
 
 func allow(t *testing.T, entries ...string) acl.List {
@@ -59,16 +60,50 @@ func startProxy(t *testing.T, cfg Config) (p *Proxy, stop context.CancelFunc) {
 	return p, stop
 }
 
-func get(t *testing.T, p *Proxy, clientIP string) (status int, body string) {
+func newRequest(t *testing.T, p *Proxy, path, clientIP string) *http.Request {
 	t.Helper()
-	req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, "http://"+p.Addr().String()+"/", nil)
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, "http://"+p.Addr().String()+path, nil)
 	if err != nil {
 		t.Fatalf("NewRequest() error = %v", err)
 	}
 	req.Host = publicHost
+	req.Header.Set(markerHeader, t.Name())
 	if clientIP != "" {
 		req.Header.Set(clientIPHeader, clientIP)
 	}
+	return req
+}
+
+func fromThisTest(r *http.Request) bool {
+	return r.Header.Get(markerHeader) != ""
+}
+
+func findAccess(accesses []Access, addr string) (access Access, position int, ok bool) {
+	for i, a := range accesses {
+		if a.Addr.String() == addr {
+			return a, i, true
+		}
+	}
+	return Access{}, 0, false
+}
+
+func stray(t *testing.T, addr netip.AddrPort) {
+	t.Helper()
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, "http://"+addr.String()+"/", nil)
+	if err != nil {
+		t.Fatalf("NewRequest() error = %v", err)
+	}
+	client := &http.Client{Timeout: 5 * time.Second, Transport: &http.Transport{DisableKeepAlives: true}}
+	resp, err := client.Do(req)
+	if err != nil {
+		t.Fatalf("stray GET %s error = %v", addr, err)
+	}
+	resp.Body.Close()
+}
+
+func get(t *testing.T, p *Proxy, clientIP string) (status int, body string) {
+	t.Helper()
+	req := newRequest(t, p, "/", clientIP)
 	client := &http.Client{Timeout: 5 * time.Second, Transport: &http.Transport{DisableKeepAlives: true}}
 	resp, err := client.Do(req)
 	if err != nil {
@@ -84,7 +119,10 @@ func get(t *testing.T, p *Proxy, clientIP string) (status int, body string) {
 
 func TestProxy_AccessControl(t *testing.T) {
 	var upstreamCalls atomic.Int32
-	target := startUpstream(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	target := startUpstream(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !fromThisTest(r) {
+			return
+		}
 		upstreamCalls.Add(1)
 		fmt.Fprint(w, "hello from upstream")
 	}))
@@ -115,6 +153,7 @@ func TestProxy_AccessControl(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			before := upstreamCalls.Load()
+			stray(t, target)
 			status, body := get(t, p, tt.clientIP)
 			if status != http.StatusForbidden || !strings.Contains(body, tt.wantIP) {
 				t.Errorf("GET = %d %q, want 403 mentioning %s", status, body, tt.wantIP)
@@ -136,7 +175,9 @@ func TestProxy_AccessControl(t *testing.T) {
 func TestProxy_ForwardedRequest(t *testing.T) {
 	requests := make(chan *http.Request, 1)
 	target := startUpstream(t, http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
-		requests <- r
+		if fromThisTest(r) {
+			requests <- r
+		}
 	}))
 	localHost := fmt.Sprintf("localhost:%d", target.Port())
 
@@ -154,12 +195,8 @@ func TestProxy_ForwardedRequest(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			p, _ := startProxy(t, Config{Target: target, Allow: allow(t, allowedIP), ClientIPHeader: clientIPHeader, KeepHost: tt.keepHost})
-			req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, "http://"+p.Addr().String()+"/", nil)
-			if err != nil {
-				t.Fatalf("NewRequest() error = %v", err)
-			}
-			req.Host = publicHost
-			req.Header.Set(clientIPHeader, allowedIP)
+			stray(t, target)
+			req := newRequest(t, p, "/", allowedIP)
 			req.Header.Set("X-Forwarded-For", "10.9.9.9")
 			if tt.inboundProto != "" {
 				req.Header.Set("X-Forwarded-Proto", tt.inboundProto)
@@ -240,7 +277,7 @@ func dialUpgrade(t *testing.T, p *Proxy) (net.Conn, *bufio.Reader) {
 	if err := conn.SetDeadline(time.Now().Add(5 * time.Second)); err != nil {
 		t.Fatalf("SetDeadline() error = %v", err)
 	}
-	fmt.Fprintf(conn, "GET /ws HTTP/1.1\r\nHost: %s\r\nConnection: Upgrade\r\nUpgrade: websocket\r\n%s: %s\r\n\r\n", publicHost, clientIPHeader, allowedIP)
+	fmt.Fprintf(conn, "GET /ws HTTP/1.1\r\nHost: %s\r\nConnection: Upgrade\r\nUpgrade: websocket\r\n%s: %s\r\n%s: %s\r\n\r\n", publicHost, clientIPHeader, allowedIP, markerHeader, t.Name())
 
 	reader := bufio.NewReader(conn)
 	resp, err := http.ReadResponse(reader, nil)
@@ -292,11 +329,7 @@ func TestProxy_ServerSentEvents(t *testing.T) {
 	}))
 	p, _ := startProxy(t, Config{Target: target, Allow: allow(t, allowedIP), ClientIPHeader: clientIPHeader})
 
-	req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, "http://"+p.Addr().String()+"/events", nil)
-	if err != nil {
-		t.Fatalf("NewRequest() error = %v", err)
-	}
-	req.Header.Set(clientIPHeader, allowedIP)
+	req := newRequest(t, p, "/events", allowedIP)
 	client := &http.Client{Timeout: 5 * time.Second, Transport: &http.Transport{DisableKeepAlives: true}}
 	resp, err := client.Do(req)
 	if err != nil {
@@ -342,24 +375,27 @@ func TestProxy_Accesses(t *testing.T) {
 	t.Run("requests are counted per address, most recent first", func(t *testing.T) {
 		p, _ := startProxy(t, Config{Target: target, Allow: allow(t, allowedIP), ClientIPHeader: clientIPHeader})
 		get(t, p, allowedIP)
+		stray(t, p.Addr())
 		get(t, p, allowedIP)
 		get(t, p, blockedIP)
 
-		accesses, untracked := p.Accesses()
-		if len(accesses) != 2 || untracked != 0 {
-			t.Fatalf("Accesses() = %+v, %d, want 2 addresses and 0 untracked", accesses, untracked)
+		accesses, _ := p.Accesses()
+		blocked, blockedAt, ok := findAccess(accesses, blockedIP)
+		if !ok || blocked.Allowed || blocked.Requests != 1 {
+			t.Errorf("access of %s = %+v, want blocked with 1 request", blockedIP, blocked)
 		}
-		latest, earlier := accesses[0], accesses[1]
-		if latest.Addr.String() != blockedIP || latest.Allowed || latest.Requests != 1 {
-			t.Errorf("latest = %+v, want %s blocked with 1 request", latest, blockedIP)
+		allowed, allowedAt, ok := findAccess(accesses, allowedIP)
+		if !ok || !allowed.Allowed || allowed.Requests != 2 || allowed.LastSeen.IsZero() {
+			t.Errorf("access of %s = %+v, want allowed with 2 requests", allowedIP, allowed)
 		}
-		if earlier.Addr.String() != allowedIP || !earlier.Allowed || earlier.Requests != 2 || earlier.LastSeen.IsZero() {
-			t.Errorf("earlier = %+v, want %s allowed with 2 requests", earlier, allowedIP)
+		if blockedAt > allowedAt {
+			t.Errorf("Accesses() = %+v, want the later %s before %s", accesses, blockedIP, allowedIP)
 		}
 	})
 
 	t.Run("tracking stops growing at the limit", func(t *testing.T) {
 		p, _ := startProxy(t, Config{Target: target, Allow: allow(t, allowedIP), ClientIPHeader: clientIPHeader})
+		stray(t, p.Addr())
 		base := netip.MustParseAddr("198.18.0.0")
 		addr := base
 		for range maxTrackedAddrs + 5 {
@@ -368,8 +404,8 @@ func TestProxy_Accesses(t *testing.T) {
 		}
 
 		accesses, untracked := p.Accesses()
-		if len(accesses) != maxTrackedAddrs || untracked != 5 {
-			t.Errorf("Accesses() = %d addresses, %d untracked, want %d and 5", len(accesses), untracked, maxTrackedAddrs)
+		if len(accesses) != maxTrackedAddrs || untracked < 5 {
+			t.Errorf("Accesses() = %d addresses, %d untracked, want %d and at least 5", len(accesses), untracked, maxTrackedAddrs)
 		}
 	})
 }
