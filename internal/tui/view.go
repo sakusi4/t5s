@@ -45,7 +45,8 @@ const (
 	rowIndent        = 3
 	columnGap        = 3
 	borderWidth      = 1
-	footerHeight     = 2
+	keysHeight       = 1
+	statusHeight     = 1
 	dialogHeight     = 6
 	minHeaderHeight  = 16
 	defaultWidth     = 80
@@ -55,14 +56,14 @@ const (
 // View renders the model.
 func (m Model) View() tea.View {
 	inner := m.width - 2*borderWidth
-	header := m.headerLines(m.width)
+	top := append(m.headerLines(m.width), m.keysLine())
 	body, cursorLine := m.bodyLines(inner)
 	var dialog []string
 	if m.dialog != nil {
 		dialog = m.dialog.lines(inner, m.keys)
 	}
 
-	lines := slices.Concat(header, body, dialog, m.footerLines())
+	lines := slices.Concat(top, body, dialog, []string{m.statusLine()})
 	for i, line := range lines {
 		lines[i] = fit(line, m.width)
 	}
@@ -75,9 +76,9 @@ func (m Model) View() tea.View {
 	v.ForegroundColor = white
 	switch {
 	case m.dialog != nil:
-		v.Cursor = m.dialog.cursor(borderWidth+1, len(header)+len(body)+borderWidth-overflow)
+		v.Cursor = m.dialog.cursor(borderWidth+1, len(top)+len(body)+borderWidth-overflow)
 	case cursorLine >= 0:
-		v.Cursor = tea.NewCursor(borderWidth, len(header)+cursorLine-overflow)
+		v.Cursor = tea.NewCursor(borderWidth, len(top)+cursorLine-overflow)
 		v.Cursor.Shape = tea.CursorBar
 		v.Cursor.Blink = false
 	}
@@ -89,7 +90,7 @@ func (m Model) showsHeader() bool {
 }
 
 func (m Model) bodyHeight() int {
-	height := m.height - footerHeight
+	height := m.height - keysHeight - statusHeight
 	if m.showsHeader() {
 		height -= len(logo)
 	}
@@ -341,18 +342,22 @@ func (d shareDialog) cursor(x, y int) *tea.Cursor {
 	return cursor
 }
 
-func (m Model) footerLines() []string {
-	status := ""
+func (m Model) keysLine() string {
+	if m.dialog != nil {
+		return ""
+	}
+	return " " + hints(m.visibleKeys())
+}
+
+func (m Model) statusLine() string {
 	switch {
 	case m.flash != "":
-		status = " " + flashStyle.Render(m.flash)
+		return " " + flashStyle.Render(m.flash)
 	case m.err != nil:
-		status = " " + errorStyle.Render(m.err.Error())
+		return " " + errorStyle.Render(m.err.Error())
+	default:
+		return ""
 	}
-	if m.dialog != nil {
-		return []string{status, ""}
-	}
-	return []string{status, " " + hints(m.visibleKeys())}
 }
 
 func (m Model) visibleKeys() []key.Binding {

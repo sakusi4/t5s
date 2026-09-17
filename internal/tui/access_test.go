@@ -182,12 +182,12 @@ func TestModel_ViewFitsTheWindow(t *testing.T) {
 				m := scanned(t, &fakeDeps{}, manyServices(30)...)
 				m = shared(t, m, allowedEntry)
 				m, _ = update(t, m, tea.WindowSizeMsg{Width: width, Height: height})
-				wantLast, wantCursorOn := "q quit", "svc-00"
+				wantCursorOn := "svc-00"
 				switch screenName {
 				case "dialog":
 					m, _ = update(t, m, press('j'))
 					m, _ = update(t, m, press('s'))
-					wantLast, wantCursorOn = "", "Allow"
+					wantCursorOn = "Allow"
 				case "access":
 					m, _ = update(t, m, pressKey(tea.KeyEnter))
 					m.shares[0].accesses = accesses(1000)
@@ -199,8 +199,11 @@ func TestModel_ViewFitsTheWindow(t *testing.T) {
 				if len(lines) != height {
 					t.Fatalf("View() has %d lines, want %d", len(lines), height)
 				}
-				if last := lines[height-1]; !strings.Contains(last, wantLast) {
-					t.Errorf("last line = %q, want it to contain %q", last, wantLast)
+				if last := lines[height-1]; !strings.Contains(last, "URL copied") {
+					t.Errorf("last line = %q, want the notice", last)
+				}
+				if screenName != "dialog" && lineContaining(t, lines, "q quit") != lineContaining(t, lines, "╭─")-1 {
+					t.Errorf("View() = %q, want the keys on the line above the panel", lines)
 				}
 				if got := m.View().Cursor; got == nil || got.Y != lineContaining(t, lines, wantCursorOn) {
 					t.Errorf("View().Cursor = %+v, want it on the line with %q", got, wantCursorOn)
