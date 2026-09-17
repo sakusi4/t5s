@@ -176,7 +176,7 @@ func TestModel_ListScroll(t *testing.T) {
 
 func TestModel_ViewFitsTheWindow(t *testing.T) {
 	const width = 80
-	for _, height := range []int{40, 24, 16, 12, 8} {
+	for _, height := range []int{40, 24, 16, 12, 9} {
 		for _, screenName := range []string{"list", "dialog", "access"} {
 			t.Run(fmt.Sprintf("%s at %d lines", screenName, height), func(t *testing.T) {
 				m := scanned(t, &fakeDeps{}, manyServices(30)...)
@@ -202,14 +202,17 @@ func TestModel_ViewFitsTheWindow(t *testing.T) {
 				if last := lines[height-1]; !strings.Contains(last, "URL copied") {
 					t.Errorf("last line = %q, want the notice", last)
 				}
-				if screenName != "dialog" && lineContaining(t, lines, "q quit") != lineContaining(t, lines, "╭─")-1 {
-					t.Errorf("View() = %q, want the keys on the line above the panel", lines)
+				switch {
+				case screenName != "dialog":
+					expectKeys(t, m, []string{"q quit"}, nil)
+				case height >= len(logo)+2*borderWidth+1+dialogHeight+statusHeight:
+					expectKeys(t, m, []string{"esc cancel"}, nil)
 				}
 				if got := m.View().Cursor; got == nil || got.Y != lineContaining(t, lines, wantCursorOn) {
 					t.Errorf("View().Cursor = %+v, want it on the line with %q", got, wantCursorOn)
 				}
-				if screenName == "dialog" && !strings.Contains(strings.Join(lines, "\n"), "enter share · tab switch · esc cancel") {
-					t.Errorf("dialog keys are not visible at %d lines", height)
+				if screenName == "dialog" && !strings.Contains(strings.Join(lines, "\n"), "Expire") {
+					t.Errorf("dialog is not visible at %d lines", height)
 				}
 			})
 		}

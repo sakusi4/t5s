@@ -4,10 +4,12 @@ import (
 	"errors"
 	"net/netip"
 	"regexp"
+	"slices"
 	"strings"
 	"testing"
 	"time"
 
+	"charm.land/bubbles/v2/key"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 
@@ -51,24 +53,53 @@ func expectText(t *testing.T, m Model, want, notWant []string) {
 	}
 }
 
+func expectKeys(t *testing.T, m Model, want, notWant []string) {
+	t.Helper()
+	lines := plainLines(m.View())
+	first := lineContaining(t, lines, "█  ▀▀▄")
+	got := strings.Join(strings.Fields(lines[first]+" "+lines[first+1]), " ")
+	for _, text := range want {
+		if !strings.Contains(got, text) {
+			t.Errorf("keys = %q, want them to contain %q", got, text)
+		}
+	}
+	for _, text := range notWant {
+		if strings.Contains(got, text) {
+			t.Errorf("keys = %q, want them not to contain %q", got, text)
+		}
+	}
+}
+
+func column(t *testing.T, line, text string) int {
+	t.Helper()
+	i := strings.Index(line, text)
+	if i < 0 {
+		t.Fatalf("line %q does not contain %q", line, text)
+	}
+	return lipgloss.Width(line[:i])
+}
+
 func TestModel_View(t *testing.T) {
 	three := []discovery.Service{service(80, "nginx"), service(5173, "front"), service(9030, "app")}
 
 	t.Run("before the first scan", func(t *testing.T) {
 		m := New((&fakeDeps{}).config())
 		expectText(t, m,
-			[]string{"scanning…", "refresh 3s", "▀█▀ █▀▀ ▄▀▀", "share localhost with only the people you allow", "╭─ Local services ─", "q quit"},
-			[]string{"Active shares", "s share", "x stop", "c copy", "enter access log"})
+			[]string{"scanning…", "refresh 3s", "▀█▀ █▀▀ ▄▀▀", "share localhost with only the people you allow", "╭─ Local services ─"},
+			[]string{"Active shares"})
+		expectKeys(t, m, []string{"q quit"}, []string{"s share", "x stop", "c copy", "enter access log"})
 	})
 
 	t.Run("no services", func(t *testing.T) {
 		m := scanned(t, &fakeDeps{})
-		expectText(t, m, []string{"0 services", "No local web services found."}, []string{"s share"})
+		expectText(t, m, []string{"0 services", "No local web services found."}, nil)
+		expectKeys(t, m, []string{"q quit"}, []string{"s share"})
 	})
 
 	t.Run("one service can be shared", func(t *testing.T) {
 		m := scanned(t, &fakeDeps{}, three[:1]...)
-		expectText(t, m, []string{"1 service", "NAME", "FRAMEWORK", "ADDRESS", "EXPIRES", "URL", "● nginx", "localhost:80", "s share"}, []string{"1 services", "x stop", "c copy", "enter access log"})
+		expectText(t, m, []string{"1 service", "NAME", "FRAMEWORK", "ADDRESS", "EXPIRES", "URL", "● nginx", "localhost:80"}, []string{"1 services"})
+		expectKeys(t, m, []string{"↑/k up", "↓/j down", "s share", "q quit"}, []string{"x stop", "c copy", "enter access log"})
 	})
 
 	t.Run("missing framework falls back to process then dash", func(t *testing.T) {
@@ -97,8 +128,9 @@ func TestModel_View(t *testing.T) {
 		m.now = m.shares[0].share.ExpiresAt().Add(-58*time.Minute - 30*time.Second)
 
 		expectText(t, m,
-			[]string{"3 services · 1 share", "◉ front", fakeURL, "58m", "enter access log", "x stop", "c copy"},
-			[]string{"s share", "Active shares"})
+			[]string{"3 services · 1 share", "◉ front", fakeURL, "58m"},
+			[]string{"Active shares"})
+		expectKeys(t, m, []string{"enter access log", "x stop", "c copy", "q quit"}, []string{"s share"})
 		lines := plainLines(m.View())
 		if row := lines[lineContaining(t, lines, "◉ front")]; !strings.Contains(row, fakeURL) || strings.Index(row, "58m") > strings.Index(row, fakeURL) {
 			t.Errorf("shared row = %q, want the time left before the url on the same row", row)
@@ -108,7 +140,8 @@ func TestModel_View(t *testing.T) {
 	t.Run("opening and not responding are marked on the row", func(t *testing.T) {
 		m := scanned(t, &fakeDeps{}, three...)
 		m.opening = []discovery.Service{three[0]}
-		expectText(t, m, []string{"opening tunnel…"}, []string{"s share"})
+		expectText(t, m, []string{"opening tunnel…"}, nil)
+		expectKeys(t, m, []string{"q quit"}, []string{"s share"})
 
 		m = shared(t, scanned(t, &fakeDeps{}, three[1]), allowedEntry)
 		m, _ = update(t, m, tea.WindowSizeMsg{Width: 120, Height: 24})
@@ -144,8 +177,9 @@ func TestModel_View(t *testing.T) {
 
 		expectText(t, m,
 			[]string{"╭─ Access · front ─", "2 addresses · +7 untracked requests", fakeURL + " · 58m left", "ADDRESS", "VERDICT", "REQUESTS", "LAST SEEN",
-				"198.51.100.7", "blocked", "2s ago", "203.0.113.42", "allowed", "48", "1m ago", "esc back", "c copy", "x stop", "q quit"},
-			[]string{"Local services", "s share", "enter access log"})
+				"198.51.100.7", "blocked", "2s ago", "203.0.113.42", "allowed", "48", "1m ago"},
+			[]string{"Local services"})
+		expectKeys(t, m, []string{"esc back", "c copy", "x stop", "q quit"}, []string{"s share", "enter access log"})
 	})
 
 	t.Run("access screen without requests says so", func(t *testing.T) {
@@ -176,8 +210,9 @@ func TestModel_View(t *testing.T) {
 		m, _ = update(t, m, pressKey(tea.KeyEnter))
 
 		expectText(t, m,
-			[]string{"╭─ Share front (localhost:5173) ─", "Allow   0.0.0.0/0", "Expire", "‹1h›", "allows every address", "enter share · tab switch · esc cancel"},
-			[]string{"q quit", "s share"})
+			[]string{"╭─ Share front (localhost:5173) ─", "Allow   0.0.0.0/0", "Expire", "‹1h›", "allows every address"},
+			[]string{"enter share · tab switch"})
+		expectKeys(t, m, []string{"enter share", "tab switch", "esc cancel"}, []string{"q quit", "s share"})
 		got := m.View()
 		allowLine := lineContaining(t, plainLines(got), "Allow   0.0.0.0/0")
 		wantX := lipgloss.Width("│ Allow   0.0.0.0/0")
@@ -190,6 +225,23 @@ func TestModel_View(t *testing.T) {
 		if expireLine := lineContaining(t, plainLines(got), "Expire"); got.Cursor == nil || got.Cursor.Y != expireLine {
 			t.Errorf("View().Cursor = %+v, want it on the expire line %d", got.Cursor, expireLine)
 		}
+	})
+
+	t.Run("keys sit under the tagline in two rows", func(t *testing.T) {
+		lines := plainLines(scanned(t, &fakeDeps{}, three...).View())
+		want := column(t, lines[0], tagline)
+		if up, down := column(t, lines[1], "↑/k"), column(t, lines[2], "↓/j"); up != want || down != want {
+			t.Errorf("keys start at columns %d and %d, want both under the tagline at %d", up, down, want)
+		}
+	})
+
+	t.Run("refresh note gives way to the keys in a narrow window", func(t *testing.T) {
+		m := scanned(t, &fakeDeps{}, three...)
+		m, _ = update(t, m, press('j'))
+		m = shared(t, m, allowedEntry)
+		m, _ = update(t, m, tea.WindowSizeMsg{Width: 60, Height: 24})
+		expectText(t, m, nil, []string{"refresh 3s"})
+		expectKeys(t, m, []string{"c copy", "q quit"}, []string{"…"})
 	})
 
 	t.Run("empty allow input shows the whole example", func(t *testing.T) {
@@ -316,6 +368,39 @@ func TestModel_View(t *testing.T) {
 		m, _ := update(t, New((&fakeDeps{}).config()), tea.WindowSizeMsg{Width: 50, Height: 24})
 		expectText(t, m, []string{"▀█▀ █▀▀ ▄▀▀"}, []string{"share localhost"})
 	})
+}
+
+func TestKeyGrid(t *testing.T) {
+	keys := newKeyMap()
+	tests := []struct {
+		name     string
+		bindings []key.Binding
+		want     []string
+	}{
+		{"two columns", []key.Binding{keys.up, keys.down, keys.share, keys.quit}, []string{
+			"↑/k up     s share",
+			"↓/j down   q quit",
+		}},
+		{"keys and descriptions line up inside a column", []key.Binding{keys.up, keys.down, keys.open, keys.stop, keys.copy, keys.quit}, []string{
+			"↑/k up     enter access log   c copy",
+			"↓/j down   x     stop         q quit",
+		}},
+		{"odd number leaves the last cell empty", []key.Binding{keys.up, keys.down, keys.quit}, []string{
+			"↑/k up     q quit",
+			"↓/j down",
+		}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := keyGrid(tt.bindings)
+			for i := range got {
+				got[i] = sgrPattern.ReplaceAllString(got[i], "")
+			}
+			if !slices.Equal(got, tt.want) {
+				t.Errorf("keyGrid() = %q, want %q", got, tt.want)
+			}
+		})
+	}
 }
 
 func TestFormatSpan(t *testing.T) {

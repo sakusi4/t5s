@@ -47,10 +47,8 @@ const (
 	borderWidth      = 1
 	cursorWidth      = 1
 	dialogIndent     = " "
-	keysHeight       = 1
 	statusHeight     = 1
-	dialogHeight     = 6
-	minHeaderHeight  = 16
+	dialogHeight     = 5
 	defaultWidth     = 80
 	defaultHeight    = 24
 )
@@ -58,14 +56,14 @@ const (
 // View renders the model.
 func (m Model) View() tea.View {
 	inner := m.width - 2*borderWidth
-	top := append(m.headerLines(m.width), m.keysLine())
+	header := m.headerLines(m.width)
 	body, cursorLine := m.bodyLines(inner)
 	var dialog []string
 	if m.dialog != nil {
-		dialog = m.dialog.lines(inner, m.keys)
+		dialog = m.dialog.lines(inner)
 	}
 
-	lines := slices.Concat(top, body, dialog, []string{m.statusLine()})
+	lines := slices.Concat(header, body, dialog, []string{m.statusLine()})
 	for i, line := range lines {
 		lines[i] = fit(line, m.width)
 	}
@@ -78,24 +76,17 @@ func (m Model) View() tea.View {
 	v.ForegroundColor = white
 	switch {
 	case m.dialog != nil:
-		v.Cursor = m.dialog.cursor(borderWidth+1, len(top)+len(body)+borderWidth-overflow)
+		v.Cursor = m.dialog.cursor(borderWidth+1, len(header)+len(body)+borderWidth-overflow)
 	case cursorLine >= 0:
-		v.Cursor = tea.NewCursor(borderWidth, len(top)+cursorLine-overflow)
+		v.Cursor = tea.NewCursor(borderWidth, len(header)+cursorLine-overflow)
 		v.Cursor.Shape = tea.CursorBar
 		v.Cursor.Blink = false
 	}
 	return v
 }
 
-func (m Model) showsHeader() bool {
-	return m.height >= minHeaderHeight
-}
-
 func (m Model) bodyHeight() int {
-	height := m.height - keysHeight - statusHeight
-	if m.showsHeader() {
-		height -= len(logo)
-	}
+	height := m.height - len(logo) - statusHeight
 	if m.dialog != nil {
 		height -= dialogHeight
 	}
@@ -307,7 +298,7 @@ func panel(title, right string, content []string, inner int) []string {
 	return append(lines, borderStyle.Render("╰"+strings.Repeat("─", max(inner, 0))+"╯"))
 }
 
-func (d shareDialog) lines(inner int, keys keyMap) []string {
+func (d shareDialog) lines(inner int) []string {
 	choices := make([]string, len(expiryChoices))
 	for i, choice := range expiryChoices {
 		choices[i] = descStyle.Render(" " + formatExpiry(choice) + " ")
@@ -327,7 +318,6 @@ func (d shareDialog) lines(inner int, keys keyMap) []string {
 		dialogIndent + allowLabelStyle.Render(allowLabel) + d.allow.View(),
 		dialogIndent + expireLabelStyle.Render(expireLabel) + strings.Join(choices, " "),
 		problem,
-		dialogIndent + hints(keys.dialogBindings()),
 	}
 	return panel(fmt.Sprintf(dialogTitle, displayName(d.service), displayAddr(d.service)), "", content, inner)
 }
@@ -348,13 +338,6 @@ func (d shareDialog) cursor(x, y int) *tea.Cursor {
 	return cursor
 }
 
-func (m Model) keysLine() string {
-	if m.dialog != nil {
-		return ""
-	}
-	return " " + hints(m.visibleKeys())
-}
-
 func (m Model) statusLine() string {
 	switch {
 	case m.flash != "":
@@ -367,6 +350,9 @@ func (m Model) statusLine() string {
 }
 
 func (m Model) visibleKeys() []key.Binding {
+	if m.dialog != nil {
+		return m.keys.dialogBindings()
+	}
 	bindings := []key.Binding{m.keys.up, m.keys.down}
 	if m.screen == screenAccess {
 		return append(bindings, m.keys.back, m.keys.copy, m.keys.stop, m.keys.quit)
@@ -380,14 +366,6 @@ func (m Model) visibleKeys() []key.Binding {
 		}
 	}
 	return append(bindings, m.keys.quit)
-}
-
-func hints(bindings []key.Binding) string {
-	parts := make([]string, len(bindings))
-	for i, b := range bindings {
-		parts[i] = keyStyle.Render(b.Help().Key) + " " + descStyle.Render(b.Help().Desc)
-	}
-	return strings.Join(parts, descStyle.Render(hintSeparator))
 }
 
 func formatSpan(d time.Duration) string {
