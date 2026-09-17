@@ -182,6 +182,13 @@ func TestModel_View(t *testing.T) {
 		expectKeys(t, m, []string{"esc back", "c copy", "x stop", "q quit"}, []string{"s share", "enter access log"})
 	})
 
+	t.Run("access screen counts one address in the singular", func(t *testing.T) {
+		m := shared(t, scanned(t, &fakeDeps{}, three[1]), allowedEntry)
+		m, _ = update(t, m, pressKey(tea.KeyEnter))
+		m.shares[0].accesses = []proxy.Access{{Addr: netip.MustParseAddr("198.51.100.7"), Requests: 1}}
+		expectText(t, m, []string{" 1 address ─╮"}, nil)
+	})
+
 	t.Run("access screen without requests says so", func(t *testing.T) {
 		m := shared(t, scanned(t, &fakeDeps{}, three[1]), allowedEntry)
 		m, _ = update(t, m, pressKey(tea.KeyEnter))

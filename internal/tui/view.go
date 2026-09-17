@@ -33,7 +33,6 @@ const (
 	noServicesText   = "No local web services found."
 	noAccessText     = "No requests yet."
 	rangeText        = "%d–%d of %d"
-	addressesText    = "%d addresses"
 	untrackedText    = "+%d untracked requests"
 	openingNote      = "opening tunnel…"
 	notRespondingTag = "not responding"
@@ -135,7 +134,7 @@ func (m Model) servicesPanel(inner int) (lines []string, cursorLine int) {
 
 func (m Model) servicesLabel() string {
 	rows := m.rows()
-	label := plural(len(rows), "service")
+	label := plural(len(rows), "service", "services")
 	if span := rangeLabel(m.offset, m.visibleRows(), len(rows)); span != "" {
 		label = span + " services"
 	}
@@ -143,16 +142,16 @@ func (m Model) servicesLabel() string {
 		label = scanningStatus
 	}
 	if len(m.shares) > 0 {
-		label += hintSeparator + plural(len(m.shares), "share")
+		label += hintSeparator + plural(len(m.shares), "share", "shares")
 	}
 	return label + hintSeparator + fmt.Sprintf(refreshText, refreshInterval)
 }
 
-func plural(n int, noun string) string {
+func plural(n int, one, many string) string {
 	if n == 1 {
-		return "1 " + noun
+		return "1 " + one
 	}
-	return fmt.Sprintf("%d %ss", n, noun)
+	return fmt.Sprintf("%d %s", n, many)
 }
 
 func (m Model) serviceTable(rows []row, inner int) []string {
@@ -276,7 +275,7 @@ func (m Model) accessPanel(current activeShare, inner int) (lines []string, curs
 		cursorLine = borderWidth + 2 + m.access.cursor - m.access.offset
 	}
 
-	label := fmt.Sprintf(addressesText, len(current.accesses))
+	label := plural(len(current.accesses), "address", "addresses")
 	if span := rangeLabel(m.access.offset, m.visibleAccesses(), len(current.accesses)); span != "" {
 		label = span + " addresses"
 	}
