@@ -17,7 +17,7 @@ func TestScan(t *testing.T) {
 		t.Cleanup(srv.Close)
 		want := serverAddr(t, srv)
 
-		var scanner Scanner
+		scanner := Scanner{includeOwnListeners: true}
 		services, err := scanner.Scan(t.Context())
 		if err != nil {
 			t.Fatalf("Scan() error = %v", err)
@@ -41,7 +41,7 @@ func TestScan(t *testing.T) {
 		}))
 		t.Cleanup(srv.Close)
 
-		var scanner Scanner
+		scanner := Scanner{includeOwnListeners: true}
 		for range 2 {
 			if _, err := scanner.Scan(t.Context()); err != nil {
 				t.Fatalf("Scan() error = %v", err)
@@ -49,6 +49,29 @@ func TestScan(t *testing.T) {
 		}
 		if got := requests.Load(); got != 1 {
 			t.Errorf("server received %d requests, want 1", got)
+		}
+	})
+
+	t.Run("listeners of this process are neither listed nor probed", func(t *testing.T) {
+		var requests atomic.Int32
+		srv := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+			requests.Add(1)
+		}))
+		t.Cleanup(srv.Close)
+		own := serverAddr(t, srv)
+
+		var scanner Scanner
+		services, err := scanner.Scan(t.Context())
+		if err != nil {
+			t.Fatalf("Scan() error = %v", err)
+		}
+		for _, s := range services {
+			if s.Addr == own {
+				t.Errorf("Scan() lists %+v, want listeners of this process skipped", s)
+			}
+		}
+		if got := requests.Load(); got != 0 {
+			t.Errorf("own server received %d requests, want 0", got)
 		}
 	})
 
