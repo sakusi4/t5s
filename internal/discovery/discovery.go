@@ -21,8 +21,13 @@ type Service struct {
 }
 
 // Scanner finds local web services and probes each listener only once.
+// It skips the listeners of its own process, such as the proxies t5s runs.
 type Scanner struct {
 	probed map[listener]probeResult
+
+	// includeOwnListeners keeps the listeners of this process.
+	// Tests set it to find the servers they start.
+	includeOwnListeners bool
 }
 
 type candidate struct {
@@ -42,8 +47,12 @@ func (s *Scanner) Scan(ctx context.Context) ([]Service, error) {
 		return nil, fmt.Errorf("find home directory: %w", err)
 	}
 
+	ownPID := int32(os.Getpid())
 	var candidates []candidate
 	for _, l := range dedupeByPort(listeners) {
+		if l.pid == ownPID && !s.includeOwnListeners {
+			continue
+		}
 		p := lookupProcess(ctx, l.pid)
 		if !isIgnored(p.name) {
 			candidates = append(candidates, candidate{listener: l, process: p})
