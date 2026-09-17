@@ -1,0 +1,18 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>dashboard</title>
+<style>
+  body { font: 16px/1.5 system-ui, sans-serif; max-width: 40rem; margin: 3rem auto; padding: 0 1rem; }
+  pre { background: #f4f4f4; padding: 1rem; overflow-x: auto; }
+</style>
+<h1>dashboard</h1>
+<p>A page served by nginx. It calls <code>/api/</code>, which nginx forwards to the
+<code>api</code> container. The reply below is what <code>api</code> received, so the
+<code>Host</code> and <code>X-Forwarded-For</code> lines show what t5s sent.</p>
+<pre id="api">Loading /api/ …</pre>
+<script>
+  fetch('/api/')
+    .then(r => r.text())
+    .then(text => { document.getElementById('api').textContent = text; })
+    .catch(err => { document.getElementById('api').textContent = 'GET /api/ failed: ' + err; });
+</script>

@@ -1,0 +1,39 @@
+# Local services to try t5s against.
+#
+#   docker compose -f hack/compose.yaml up -d
+#   go run ./cmd/t5s
+#
+# t5s lists dashboard, api and mail. redis and the SMTP port of mail do not
+# answer HTTP, so they stay out of the list. dashboard proxies /api/ to api,
+# which echoes the request headers it received: share dashboard and open the
+# page to see the Host and X-Forwarded-For that t5s sets.
+
+name: t5s
+
+services:
+  dashboard:
+    image: nginx:alpine
+    container_name: dashboard
+    ports:
+      - "3000:80"
+    volumes:
+      - ./default.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./index.html:/usr/share/nginx/html/index.html:ro
+
+  api:
+    image: traefik/whoami
+    container_name: api
+    ports:
+      - "8080:80"
+
+  mail:
+    image: axllent/mailpit
+    container_name: mail
+    ports:
+      - "8025:8025"
+      - "1025:1025"
+
+  redis:
+    image: redis:alpine
+    ports:
+      - "6379:6379"
