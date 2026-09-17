@@ -59,6 +59,7 @@ func Start(ctx context.Context, cfg Config) (*Proxy, error) {
 	srv := &http.Server{
 		Handler:           guard(cfg.Allow, cfg.ClientIPHeader, p.log)(forward(cfg)),
 		ReadHeaderTimeout: readHeaderTimeout,
+		BaseContext:       func(net.Listener) context.Context { return ctx },
 	}
 	stop := context.AfterFunc(ctx, func() { srv.Close() })
 	go func() {

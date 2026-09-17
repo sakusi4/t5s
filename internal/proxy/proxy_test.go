@@ -1,13 +1,16 @@
 package proxy
 
 import (
+	"bufio"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/netip"
+	"os"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -192,6 +195,124 @@ func TestProxy_UnreachableService(t *testing.T) {
 	p, _ := startProxy(t, Config{Target: goneAddr, Allow: allow(t, allowedIP), ClientIPHeader: clientIPHeader})
 	if status, _ := get(t, p, allowedIP); status != http.StatusBadGateway {
 		t.Errorf("GET = %d, want 502", status)
+	}
+}
+
+func upgradeHandler(t *testing.T) http.Handler {
+	t.Helper()
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hijacker, ok := w.(http.Hijacker)
+		if !ok || r.Header.Get("Upgrade") != "websocket" {
+			http.Error(w, "expected an upgrade request", http.StatusBadRequest)
+			return
+		}
+		conn, rw, err := hijacker.Hijack()
+		if err != nil {
+			t.Errorf("Hijack() error = %v", err)
+			return
+		}
+		defer conn.Close()
+		fmt.Fprint(rw, "HTTP/1.1 101 Switching Protocols\r\nConnection: Upgrade\r\nUpgrade: websocket\r\n\r\n")
+		if err := rw.Flush(); err != nil {
+			return
+		}
+		buf := make([]byte, 64)
+		for {
+			n, err := rw.Read(buf)
+			if err != nil {
+				return
+			}
+			if _, err := conn.Write(buf[:n]); err != nil {
+				return
+			}
+		}
+	})
+}
+
+func dialUpgrade(t *testing.T, p *Proxy) (net.Conn, *bufio.Reader) {
+	t.Helper()
+	var d net.Dialer
+	conn, err := d.DialContext(t.Context(), "tcp", p.Addr().String())
+	if err != nil {
+		t.Fatalf("dial proxy error = %v", err)
+	}
+	t.Cleanup(func() { conn.Close() })
+	if err := conn.SetDeadline(time.Now().Add(5 * time.Second)); err != nil {
+		t.Fatalf("SetDeadline() error = %v", err)
+	}
+	fmt.Fprintf(conn, "GET /ws HTTP/1.1\r\nHost: %s\r\nConnection: Upgrade\r\nUpgrade: websocket\r\n%s: %s\r\n\r\n", publicHost, clientIPHeader, allowedIP)
+
+	reader := bufio.NewReader(conn)
+	resp, err := http.ReadResponse(reader, nil)
+	if err != nil {
+		t.Fatalf("read upgrade response error = %v", err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusSwitchingProtocols {
+		t.Fatalf("upgrade status = %d, want 101", resp.StatusCode)
+	}
+	return conn, reader
+}
+
+func TestProxy_Upgrade(t *testing.T) {
+	target := startUpstream(t, upgradeHandler(t))
+
+	t.Run("bytes flow both ways after the upgrade", func(t *testing.T) {
+		p, _ := startProxy(t, Config{Target: target, Allow: allow(t, allowedIP), ClientIPHeader: clientIPHeader})
+		conn, reader := dialUpgrade(t, p)
+
+		fmt.Fprint(conn, "ping")
+		echo := make([]byte, 4)
+		if _, err := io.ReadFull(reader, echo); err != nil || string(echo) != "ping" {
+			t.Errorf("echo = %q, %v, want ping", echo, err)
+		}
+	})
+
+	t.Run("stopping the proxy cuts an open connection", func(t *testing.T) {
+		p, stop := startProxy(t, Config{Target: target, Allow: allow(t, allowedIP), ClientIPHeader: clientIPHeader})
+		_, reader := dialUpgrade(t, p)
+
+		stop()
+		if _, err := reader.ReadByte(); err == nil || errors.Is(err, os.ErrDeadlineExceeded) {
+			t.Errorf("read after stop error = %v, want the connection closed", err)
+		}
+	})
+}
+
+func TestProxy_ServerSentEvents(t *testing.T) {
+	sendSecond := make(chan struct{})
+	target := startUpstream(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		fmt.Fprint(w, "data: first\n\n")
+		if err := http.NewResponseController(w).Flush(); err != nil {
+			t.Errorf("Flush() error = %v", err)
+		}
+		<-sendSecond
+		fmt.Fprint(w, "data: second\n\n")
+	}))
+	p, _ := startProxy(t, Config{Target: target, Allow: allow(t, allowedIP), ClientIPHeader: clientIPHeader})
+
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, "http://"+p.Addr().String()+"/events", nil)
+	if err != nil {
+		t.Fatalf("NewRequest() error = %v", err)
+	}
+	req.Header.Set(clientIPHeader, allowedIP)
+	client := &http.Client{Timeout: 5 * time.Second, Transport: &http.Transport{DisableKeepAlives: true}}
+	resp, err := client.Do(req)
+	if err != nil {
+		t.Fatalf("GET /events error = %v", err)
+	}
+	defer resp.Body.Close()
+
+	reader := bufio.NewReader(resp.Body)
+	first, err := reader.ReadString('\n')
+	if err != nil || first != "data: first\n" {
+		t.Fatalf("first event = %q, %v, want it before the second is sent", first, err)
+	}
+	close(sendSecond)
+	rest, err := io.ReadAll(reader)
+	if err != nil || !strings.Contains(string(rest), "data: second") {
+		t.Errorf("rest = %q, %v, want the second event", rest, err)
 	}
 }
 
