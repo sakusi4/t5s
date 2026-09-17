@@ -29,3 +29,7 @@ jobs:
         run: |
           CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 go build ./...
           CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build ./...
+      - uses: goreleaser/goreleaser-action@v7
+        with:
+          version: "~> v2"
+          args: check
