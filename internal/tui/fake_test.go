@@ -35,12 +35,15 @@ func (f fakeTunnel) Wait() error {
 	return nil
 }
 
+var fakeOwn = []netip.Addr{netip.MustParseAddr("192.0.2.10"), netip.MustParseAddr("2001:db8::10")}
+
 type fakeDeps struct {
 	mu      sync.Mutex
 	copied  []string
 	local   netip.AddrPort
 	openErr error
 	copyErr error
+	ownErr  error
 }
 
 func (f *fakeDeps) config(services ...discovery.Service) Config {
@@ -64,6 +67,12 @@ func (f *fakeDeps) config(services ...discovery.Service) Config {
 			f.copied = append(f.copied, text)
 			return f.copyErr
 		},
+		PublicAddrs: func(context.Context) ([]netip.Addr, error) {
+			if f.ownErr != nil {
+				return nil, f.ownErr
+			}
+			return fakeOwn, nil
+		},
 	}
 }
 
@@ -71,6 +80,12 @@ func (f *fakeDeps) clipboard() []string {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return append([]string(nil), f.copied...)
+}
+
+func known(t *testing.T, m Model) Model {
+	t.Helper()
+	m, _ = update(t, m, ownAddrsMsg{addrs: fakeOwn})
+	return m
 }
 
 func (f *fakeDeps) visit(t *testing.T, client string) {

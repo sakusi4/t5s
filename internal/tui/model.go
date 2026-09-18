@@ -3,6 +3,7 @@ package tui
 
 import (
 	"context"
+	"net/netip"
 	"time"
 
 	"charm.land/bubbles/v2/key"
@@ -15,6 +16,7 @@ import (
 const (
 	refreshInterval = 3 * time.Second
 	scanTimeout     = 5 * time.Second
+	lookupTimeout   = 15 * time.Second
 	clockInterval   = time.Second
 )
 
@@ -23,9 +25,10 @@ type ScanFunc func(context.Context) ([]discovery.Service, error)
 
 // Config holds what the screen needs from the outside.
 type Config struct {
-	Scan    ScanFunc
-	Backend share.Backend
-	Copy    func(text string) error
+	Scan        ScanFunc
+	Backend     share.Backend
+	Copy        func(text string) error
+	PublicAddrs func(context.Context) ([]netip.Addr, error)
 }
 
 type screen int
@@ -49,6 +52,8 @@ type Model struct {
 	err       error
 	dialog    *shareDialog
 	lastAllow string
+	own       []netip.Addr
+	ownErr    error
 	flash     string
 	flashID   int
 	quitting  bool
@@ -67,14 +72,19 @@ type tickMsg struct{}
 
 type clockMsg time.Time
 
+type ownAddrsMsg struct {
+	addrs []netip.Addr
+	err   error
+}
+
 // New returns a Model that lists the services found by cfg.Scan and shares them through cfg.Backend.
 func New(cfg Config) Model {
 	return Model{cfg: cfg, keys: newKeyMap(), width: defaultWidth, height: defaultHeight}
 }
 
-// Init starts the first scan and the clock.
+// Init starts the first scan, the clock and the lookup of the own address.
 func (m Model) Init() tea.Cmd {
-	return tea.Batch(m.scanCmd(), clockCmd())
+	return tea.Batch(m.scanCmd(), clockCmd(), m.lookupCmd())
 }
 
 // Update applies msg to the model.
@@ -91,6 +101,8 @@ func (m Model) update(msg tea.Msg) (Model, tea.Cmd) {
 		return m, m.scanCmd()
 	case clockMsg:
 		return m.applyClock(time.Time(msg)), clockCmd()
+	case ownAddrsMsg:
+		return m.applyOwnAddrs(msg), nil
 	case tea.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height
 		if m.dialog != nil {
@@ -113,6 +125,24 @@ func (m Model) scanCmd() tea.Cmd {
 		services, err := m.cfg.Scan(ctx)
 		return scannedMsg{services: services, err: err}
 	}
+}
+
+func (m Model) lookupCmd() tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), lookupTimeout)
+		defer cancel()
+		addrs, err := m.cfg.PublicAddrs(ctx)
+		return ownAddrsMsg{addrs: addrs, err: err}
+	}
+}
+
+func (m Model) applyOwnAddrs(msg ownAddrsMsg) Model {
+	m.own, m.ownErr = msg.addrs, msg.err
+	if m.dialog != nil {
+		dialog := m.dialog.withOwn(m.own)
+		m.dialog = &dialog
+	}
+	return m
 }
 
 func tickCmd() tea.Cmd {

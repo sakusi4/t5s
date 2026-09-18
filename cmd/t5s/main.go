@@ -12,6 +12,7 @@ import (
 
 	"github.com/sakusi4/t5s/internal/cloudflared"
 	"github.com/sakusi4/t5s/internal/discovery"
+	"github.com/sakusi4/t5s/internal/publicip"
 	"github.com/sakusi4/t5s/internal/share"
 	"github.com/sakusi4/t5s/internal/tui"
 )
@@ -31,7 +32,8 @@ func main() {
 				return tunnel, nil
 			},
 		},
-		Copy: clipboard.WriteAll,
+		Copy:        clipboard.WriteAll,
+		PublicAddrs: publicip.Lookup,
 	})
 	if _, err := tea.NewProgram(model).Run(); err != nil {
 		fmt.Fprintln(os.Stderr, "t5s:", err)

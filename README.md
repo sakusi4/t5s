@@ -66,7 +66,7 @@ t5s lists the local web services it finds and refreshes the list every 3 seconds
 | `x` | Stop the share |
 | `q` | Quit and stop every share |
 
-The allowlist takes IP addresses and CIDR ranges separated by commas or spaces, for example `203.0.113.42, 10.0.0.0/8`. Allowing everything (`0.0.0.0/0`, `::/0`) is refused. A share expires after 15 minutes, 1 hour (default), 4 hours or 24 hours, and every share stops when t5s exits.
+The allowlist takes IP addresses and CIDR ranges separated by commas or spaces, for example `203.0.113.42, 10.0.0.0/8`. Your own public address is always allowed on top of that, so you can open every share yourself; leave the list empty for a share only you can reach. t5s looks that address up from Cloudflare when it starts and shows it at the bottom right of the screen. Allowing everything (`0.0.0.0/0`, `::/0`) is refused. A share expires after 15 minutes, 1 hour (default), 4 hours or 24 hours, and every share stops when t5s exits.
 
 ## How it works
 

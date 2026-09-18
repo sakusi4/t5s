@@ -32,6 +32,11 @@ const (
 	refreshText      = "refresh %s"
 	noServicesText   = "No local web services found."
 	noAccessText     = "No requests yet."
+	ownAllowedNote   = "Your own address is always allowed."
+	ownUnknownNote   = "Your own address is unknown; allow at least one."
+	findingOwnText   = "finding your address…"
+	ownUnknownText   = "your address unknown"
+	ownLabel         = "you "
 	rangeText        = "%d–%d of %d"
 	untrackedText    = "+%d untracked requests"
 	openingNote      = "opening tunnel…"
@@ -49,7 +54,8 @@ const (
 	cursorWidth      = 1
 	dialogIndent     = " "
 	statusHeight     = 1
-	dialogHeight     = 5
+	dialogHeight     = 6
+	dialogAllowLine  = 2
 	defaultWidth     = 80
 	defaultHeight    = 24
 )
@@ -77,7 +83,7 @@ func (m Model) View() tea.View {
 	v.ForegroundColor = white
 	switch {
 	case m.dialog != nil:
-		v.Cursor = m.dialog.cursor(borderWidth+1, len(header)+len(body)+borderWidth-overflow)
+		v.Cursor = m.dialog.cursor(borderWidth+1, len(header)+len(body)+dialogAllowLine-overflow)
 	case cursorLine >= 0:
 		v.Cursor = tea.NewCursor(borderWidth, len(header)+cursorLine-overflow)
 		v.Cursor.Shape = tea.CursorBar
@@ -336,11 +342,16 @@ func (d shareDialog) lines(inner int) []string {
 	if d.field == fieldExpire {
 		allowLabelStyle, expireLabelStyle = descStyle, chosenStyle
 	}
+	note := ownAllowedNote
+	if len(d.own) == 0 {
+		note = ownUnknownNote
+	}
 	problem := ""
 	if d.err != nil {
-		problem = " " + errorStyle.Render(d.err.Error())
+		problem = dialogIndent + errorStyle.Render(d.err.Error())
 	}
 	content := []string{
+		dialogIndent + noteStyle.Render(note),
 		dialogIndent + allowLabelStyle.Render(allowLabel) + d.allow.View(),
 		dialogIndent + expireLabelStyle.Render(expireLabel) + strings.Join(choices, " "),
 		problem,
@@ -365,14 +376,32 @@ func (d shareDialog) cursor(x, y int) *tea.Cursor {
 }
 
 func (m Model) statusLine() string {
+	notice := ""
 	switch {
 	case m.flash != "":
-		return " " + flashStyle.Render(m.flash)
+		notice = " " + flashStyle.Render(m.flash)
 	case m.err != nil:
-		return " " + errorStyle.Render(m.err.Error())
-	default:
-		return ""
+		notice = " " + errorStyle.Render(m.err.Error())
 	}
+	own := m.ownText()
+	if lipgloss.Width(notice)+headerGap+lipgloss.Width(own) >= m.width {
+		return notice
+	}
+	return pad(notice, m.width-lipgloss.Width(own)-1) + own
+}
+
+func (m Model) ownText() string {
+	switch {
+	case m.ownErr != nil:
+		return detailStyle.Render(ownUnknownText)
+	case len(m.own) == 0:
+		return detailStyle.Render(findingOwnText)
+	}
+	addrs := make([]string, len(m.own))
+	for i, addr := range m.own {
+		addrs[i] = addr.String()
+	}
+	return detailStyle.Render(ownLabel) + nameStyle.Render(strings.Join(addrs, hintSeparator))
 }
 
 func (m Model) visibleKeys() []key.Binding {

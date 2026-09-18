@@ -2,6 +2,7 @@ package tui
 
 import (
 	"fmt"
+	"net/netip"
 	"strings"
 	"time"
 	"unicode"
@@ -42,11 +43,12 @@ type shareDialog struct {
 	allow   textinput.Model
 	expiry  int
 	field   dialogField
+	own     []netip.Addr
 	err     error
 	request share.Request
 }
 
-func newShareDialog(service discovery.Service, lastAllow string, allowWidth int) (shareDialog, tea.Cmd) {
+func newShareDialog(service discovery.Service, lastAllow string, allowWidth int, own []netip.Addr) (shareDialog, tea.Cmd) {
 	input := textinput.New()
 	input.Prompt = ""
 	input.Placeholder = allowPlaceholder
@@ -54,7 +56,12 @@ func newShareDialog(service discovery.Service, lastAllow string, allowWidth int)
 	input.SetVirtualCursor(false)
 	input.SetValue(lastAllow)
 	focus := input.Focus()
-	return shareDialog{service: service, allow: input, expiry: defaultExpiryIndex}, focus
+	return shareDialog{service: service, allow: input, expiry: defaultExpiryIndex, own: own}, focus
+}
+
+func (d shareDialog) withOwn(own []netip.Addr) shareDialog {
+	d.own = own
+	return d
 }
 
 // resized returns the dialog with its allow input scrolled to fit allowWidth.
@@ -88,7 +95,11 @@ func (d shareDialog) update(msg tea.KeyPressMsg, keys keyMap) (shareDialog, tea.
 }
 
 func (d shareDialog) submit() (shareDialog, tea.Cmd, dialogOutcome) {
-	allow, err := acl.Parse(splitEntries(d.allow.Value()))
+	entries := splitEntries(d.allow.Value())
+	for _, addr := range d.own {
+		entries = append(entries, addr.String())
+	}
+	allow, err := acl.Parse(entries)
 	if err != nil {
 		d.err = err
 		return d, nil, dialogOpen
