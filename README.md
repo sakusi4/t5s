@@ -9,35 +9,9 @@ t5s finds the web services running on your machine, puts a proxy in front of the
 
 **Status:** early development. The cloudflared backend and the TUI work. A CLI and a self-hosted relay are planned. Expect breaking changes before v1.
 
-```
- ▀█▀ █▀▀ ▄▀▀    share localhost with only the people you allow
-  █  ▀▀▄  ▀▄                               ↑/k up     enter access log   c copy
-  ▀  ▄▄▀ ▀▀                                ↓/j down   x     stop         q quit
-╭─ Local services ───────────────────────── 3 services · 1 share · refresh 3s ─╮
-│   NAME        FRAMEWORK   ADDRESS          EXPIRES   URL                     │
-│ ◉ dashboard   nginx       localhost:3000   59m       https://green-cat-89.tr…│
-│ ● mail        Docker      localhost:8025                                     │
-│ ● api         Docker      localhost:8080                                     │
-│                                                                              │
-╰──────────────────────────────────────────────────────────────────────────────╯
- URL copied
-```
+Sharing `dashboard` with one address, then watching who reaches it:
 
-Press `enter` on a shared service to see who reached it:
-
-```
- ▀█▀ █▀▀ ▄▀▀    share localhost with only the people you allow
-  █  ▀▀▄  ▀▄                               ↑/k up     esc back   x stop
-  ▀  ▄▄▀ ▀▀                                ↓/j down   c   copy   q quit
-╭─ Access · dashboard ─────────────────────────────────────────── 2 addresses ─╮
-│ https://green-cat-89.trycloudflare.com · 59m left                            │
-│   ADDRESS        VERDICT   REQUESTS   LAST SEEN                              │
-│   198.51.100.7   blocked   1          2s ago                                 │
-│   203.0.113.42   allowed   12         2s ago                                 │
-│                                                                              │
-╰──────────────────────────────────────────────────────────────────────────────╯
- URL copied
-```
+![t5s finds dashboard, shares it with one address and shows the visitors in its access log](docs/demo.gif)
 
 ## Install
 
