@@ -54,7 +54,8 @@ const (
 	cursorWidth      = 1
 	dialogIndent     = " "
 	statusHeight     = 1
-	dialogHeight     = 5
+	dialogHeight     = 6
+	dialogAllowLine  = 2
 	defaultWidth     = 80
 	defaultHeight    = 24
 )
@@ -82,7 +83,7 @@ func (m Model) View() tea.View {
 	v.ForegroundColor = white
 	switch {
 	case m.dialog != nil:
-		v.Cursor = m.dialog.cursor(borderWidth+1, len(header)+len(body)+borderWidth-overflow)
+		v.Cursor = m.dialog.cursor(borderWidth+1, len(header)+len(body)+dialogAllowLine-overflow)
 	case cursorLine >= 0:
 		v.Cursor = tea.NewCursor(borderWidth, len(header)+cursorLine-overflow)
 		v.Cursor.Shape = tea.CursorBar
@@ -341,14 +342,16 @@ func (d shareDialog) lines(inner int) []string {
 	if d.field == fieldExpire {
 		allowLabelStyle, expireLabelStyle = descStyle, chosenStyle
 	}
-	problem := " " + emptyStyle.Render(ownAllowedNote)
+	note := ownAllowedNote
 	if len(d.own) == 0 {
-		problem = " " + emptyStyle.Render(ownUnknownNote)
+		note = ownUnknownNote
 	}
+	problem := ""
 	if d.err != nil {
-		problem = " " + errorStyle.Render(d.err.Error())
+		problem = dialogIndent + errorStyle.Render(d.err.Error())
 	}
 	content := []string{
+		dialogIndent + noteStyle.Render(note),
 		dialogIndent + allowLabelStyle.Render(allowLabel) + d.allow.View(),
 		dialogIndent + expireLabelStyle.Render(expireLabel) + strings.Join(choices, " "),
 		problem,

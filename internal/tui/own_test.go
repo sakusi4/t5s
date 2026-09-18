@@ -65,9 +65,22 @@ func TestModel_OwnAddress(t *testing.T) {
 		m, _ = update(t, m, press('s'))
 		expectText(t, m, []string{"Your own address is always allowed."}, nil)
 
+		got := m.View()
+		styled, plain := strings.Split(got.Content, "\n"), plainLines(got)
+		note, allow := lineContaining(t, plain, "Your own address"), lineContaining(t, plain, "Allow   ")
+		if note != allow-1 {
+			t.Errorf("note on line %d, want it right above the allow line %d", note, allow)
+		}
+		if want := sgrPattern.FindString(noteStyle.Render("x")); !strings.Contains(styled[note], want) {
+			t.Errorf("note line = %q, want it in the note colour %q", styled[note], want)
+		}
+		if got.Cursor == nil || got.Cursor.Y != allow {
+			t.Errorf("View().Cursor = %+v, want it on the allow line %d", got.Cursor, allow)
+		}
+
 		m = typeText(t, m, "0.0.0.0/0")
 		m, _ = update(t, m, pressKey(tea.KeyEnter))
-		expectText(t, m, []string{"allows every address"}, []string{"Your own address is always allowed."})
+		expectText(t, m, []string{"allows every address", "Your own address is always allowed."}, nil)
 
 		m = typeText(t, m, "1")
 		expectText(t, m, []string{"Your own address is always allowed."}, []string{"allows every address"})
