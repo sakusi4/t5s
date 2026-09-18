@@ -27,14 +27,14 @@ func TestShareDialog(t *testing.T) {
 	target := service(5173, "front")
 
 	t.Run("starts on the allow field with the last list and one hour", func(t *testing.T) {
-		d, _ := newShareDialog(target, "10.0.0.0/8", allowWidth)
+		d, _ := newShareDialog(target, "10.0.0.0/8", allowWidth, nil)
 		if d.field != fieldAllow || d.allow.Value() != "10.0.0.0/8" || expiryChoices[d.expiry] != time.Hour {
 			t.Errorf("dialog = field %d, allow %q, expiry %s, want allow field, 10.0.0.0/8, 1h", d.field, d.allow.Value(), expiryChoices[d.expiry])
 		}
 	})
 
 	t.Run("enter with a valid list submits the request", func(t *testing.T) {
-		d, _ := newShareDialog(target, "", allowWidth)
+		d, _ := newShareDialog(target, "", allowWidth, nil)
 		d = typeInto(d, "203.0.113.42, 10.0.0.0/8")
 		d, _, _ = d.update(pressKey(tea.KeyTab), keys)
 		d, _, _ = d.update(pressKey(tea.KeyRight), keys)
@@ -53,7 +53,7 @@ func TestShareDialog(t *testing.T) {
 	})
 
 	t.Run("enter with a bad list keeps the dialog open and shows why", func(t *testing.T) {
-		d, _ := newShareDialog(target, "", allowWidth)
+		d, _ := newShareDialog(target, "", allowWidth, nil)
 		d = typeInto(d, "0.0.0.0/0")
 		d, _, outcome := d.update(pressKey(tea.KeyEnter), keys)
 		if outcome != dialogOpen || d.err == nil {
@@ -66,8 +66,40 @@ func TestShareDialog(t *testing.T) {
 		}
 	})
 
+	t.Run("submit allows the own addresses next to the typed ones", func(t *testing.T) {
+		d, _ := newShareDialog(target, "203.0.113.42", allowWidth, fakeOwn)
+		d, _, outcome := d.update(pressKey(tea.KeyEnter), keys)
+		if outcome != dialogSubmitted {
+			t.Fatalf("outcome = %d, err = %v, want submitted", outcome, d.err)
+		}
+		for _, addr := range []string{"203.0.113.42", "192.0.2.10", "2001:db8::10"} {
+			if !d.request.Allow.Allows(netip.MustParseAddr(addr)) {
+				t.Errorf("request does not allow %s", addr)
+			}
+		}
+		if d.request.Allow.Allows(netip.MustParseAddr("198.51.100.7")) {
+			t.Errorf("request allows an address nobody listed")
+		}
+	})
+
+	t.Run("nothing typed shares with the own addresses only", func(t *testing.T) {
+		d, _ := newShareDialog(target, "", allowWidth, fakeOwn)
+		d, _, outcome := d.update(pressKey(tea.KeyEnter), keys)
+		if outcome != dialogSubmitted || !d.request.Allow.Allows(fakeOwn[0]) {
+			t.Errorf("outcome = %d, err = %v, want submitted with the own address allowed", outcome, d.err)
+		}
+	})
+
+	t.Run("nothing typed is refused while the own address is unknown", func(t *testing.T) {
+		d, _ := newShareDialog(target, "", allowWidth, nil)
+		d, _, outcome := d.update(pressKey(tea.KeyEnter), keys)
+		if outcome != dialogOpen || d.err == nil {
+			t.Errorf("outcome = %d, err = %v, want open with an error", outcome, d.err)
+		}
+	})
+
 	t.Run("expiry stays within the choices", func(t *testing.T) {
-		d, _ := newShareDialog(target, "", allowWidth)
+		d, _ := newShareDialog(target, "", allowWidth, nil)
 		d, _, _ = d.update(pressKey(tea.KeyTab), keys)
 		for range len(expiryChoices) + 2 {
 			d, _, _ = d.update(pressKey(tea.KeyLeft), keys)
@@ -84,7 +116,7 @@ func TestShareDialog(t *testing.T) {
 	})
 
 	t.Run("arrow keys edit the text while the allow field is active", func(t *testing.T) {
-		d, _ := newShareDialog(target, "", allowWidth)
+		d, _ := newShareDialog(target, "", allowWidth, nil)
 		d, _, _ = d.update(pressKey(tea.KeyRight), keys)
 		if d.expiry != defaultExpiryIndex {
 			t.Errorf("expiry = %d, want it unchanged at %d", d.expiry, defaultExpiryIndex)
@@ -92,7 +124,7 @@ func TestShareDialog(t *testing.T) {
 	})
 
 	t.Run("tab switches between the fields", func(t *testing.T) {
-		d, _ := newShareDialog(target, "", allowWidth)
+		d, _ := newShareDialog(target, "", allowWidth, nil)
 		d, _, _ = d.update(pressKey(tea.KeyTab), keys)
 		if d.field != fieldExpire {
 			t.Errorf("field after tab = %d, want expire", d.field)
@@ -104,7 +136,7 @@ func TestShareDialog(t *testing.T) {
 	})
 
 	t.Run("esc cancels", func(t *testing.T) {
-		d, _ := newShareDialog(target, "", allowWidth)
+		d, _ := newShareDialog(target, "", allowWidth, nil)
 		if _, _, outcome := d.update(pressKey(tea.KeyEscape), keys); outcome != dialogCanceled {
 			t.Errorf("outcome = %d, want canceled", outcome)
 		}
