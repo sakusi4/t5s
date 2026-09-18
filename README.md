@@ -5,49 +5,23 @@
 
 Share localhost with only the people you allow.
 
-t5s finds the web services running on your machine, puts a proxy in front of the one you pick, and publishes it at an HTTPS URL through a Cloudflare quick tunnel. Every share needs an allowlist of IP addresses or CIDR ranges. Requests from anywhere else get a 403, and every visitor shows up in the access log on screen.
+t5s finds the web services running on your machine, puts a proxy in front of the one you pick, and publishes it at an HTTPS URL through a Cloudflare quick tunnel. Every share has an allowlist of IP addresses or CIDR ranges, and your own public address is always on it. Requests from anywhere else get a 403, and every visitor shows up in the access log on screen.
 
-**Status:** early development. The cloudflared backend and the TUI work. A CLI and a self-hosted relay are planned. Expect breaking changes before v1.
+**Status:** early development. The cloudflared backend and the TUI work. A CLI is planned. Expect breaking changes before v1.
 
-```
- ▀█▀ █▀▀ ▄▀▀    share localhost with only the people you allow
-  █  ▀▀▄  ▀▄                               ↑/k up     enter access log   c copy
-  ▀  ▄▄▀ ▀▀                                ↓/j down   x     stop         q quit
-╭─ Local services ───────────────────────── 3 services · 1 share · refresh 3s ─╮
-│   NAME        FRAMEWORK   ADDRESS          EXPIRES   URL                     │
-│ ◉ dashboard   nginx       localhost:3000   59m       https://green-cat-89.tr…│
-│ ● mail        Docker      localhost:8025                                     │
-│ ● api         Docker      localhost:8080                                     │
-│                                                                              │
-╰──────────────────────────────────────────────────────────────────────────────╯
- URL copied
-```
+Sharing `dashboard` with one address, then watching who reaches it:
 
-Press `enter` on a shared service to see who reached it:
-
-```
- ▀█▀ █▀▀ ▄▀▀    share localhost with only the people you allow
-  █  ▀▀▄  ▀▄                               ↑/k up     esc back   x stop
-  ▀  ▄▄▀ ▀▀                                ↓/j down   c   copy   q quit
-╭─ Access · dashboard ─────────────────────────────────────────── 2 addresses ─╮
-│ https://green-cat-89.trycloudflare.com · 59m left                            │
-│   ADDRESS        VERDICT   REQUESTS   LAST SEEN                              │
-│   198.51.100.7   blocked   1          2s ago                                 │
-│   203.0.113.42   allowed   12         2s ago                                 │
-│                                                                              │
-╰──────────────────────────────────────────────────────────────────────────────╯
- URL copied
-```
+![t5s finds dashboard, shares it with one address and shows the visitors in its access log](docs/demo.gif)
 
 ## Install
 
-On macOS:
-
 ```sh
-brew install sakusi4/tap/t5s
+brew install -y sakusi4/tap/t5s
 ```
 
-This also installs [cloudflared](https://github.com/cloudflare/cloudflared), which t5s runs as a subprocess. On other systems, install cloudflared yourself and take a binary from the [releases page](https://github.com/sakusi4/t5s/releases), or run `go install github.com/sakusi4/t5s/cmd/t5s@latest` with Go 1.27 or later. No Cloudflare account is needed.
+This also installs [cloudflared](https://github.com/cloudflare/cloudflared), which t5s runs as a subprocess; `-y` accepts that dependency without a prompt. No Cloudflare account is needed.
+
+t5s is developed and tested on macOS. The [releases page](https://github.com/sakusi4/t5s/releases) also carries Linux and Windows builds, but they are untested.
 
 ## Usage
 
@@ -98,6 +72,17 @@ t5s
 You should see `dashboard` (nginx), `api` and `mail` (Docker). Redis and the SMTP port of `mail` do not answer HTTP, so they stay out of the list. `dashboard` proxies `/api/` to `api`, which echoes the headers it received: share `dashboard`, open the URL from an allowed address, and the page shows the `Host` and `X-Forwarded-For` that t5s set.
 
 ## Development
+
+Build from source with Go 1.27 or later:
+
+```sh
+git clone https://github.com/sakusi4/t5s.git
+cd t5s
+go build ./cmd/t5s
+./t5s
+```
+
+Sharing needs cloudflared on your `PATH` (`brew install cloudflared`).
 
 Every pull request must pass:
 
